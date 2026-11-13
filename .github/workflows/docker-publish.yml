@@ -1,0 +1,47 @@
+name: HOM – Docker Image veröffentlichen
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Projekt auschecken
+        uses: actions/checkout@v4
+
+      - name: Node.js installieren
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Anwendungstests
+        run: npm test
+
+      - name: Bei GitHub Container Registry anmelden
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker Image bauen und veröffentlichen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/kesselbuettner-dot/hom:latest
+            ghcr.io/kesselbuettner-dot/hom:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/kesselbuettner-dot/HOM
+            org.opencontainers.image.description=Hauskosten-Manager für UGREEN DXP2800
