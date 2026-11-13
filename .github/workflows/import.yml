@@ -1,0 +1,38 @@
+name: Einmaliger Import HOM-Quellcode
+
+on:
+  push:
+    paths:
+      - '.import/part*.b64'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hom-initial-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Importiere vorhandenen Projektstand
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d .import ] || [ "$(find .import -maxdepth 1 -name 'part*.b64' | wc -l)" -ne 5 ]; then
+            echo "Archiv noch nicht vollständig: Import übersprungen."
+            exit 0
+          fi
+          cat .import/part*.b64 | base64 -d > /tmp/hauskosten.tar.xz
+          tar -xJf /tmp/hauskosten.tar.xz
+          rm -rf .import
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Importiere Hauskosten-Manager mit Docker-Konfiguration"
+            git push origin HEAD:main
+          fi
