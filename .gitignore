@@ -1,0 +1,26 @@
+data/*.sqlite*
+data/attachments/*
+!data/attachments/.gitkeep
+node_modules/
+.DS_Store
+
+# NAS/Docker: niemals private Daten oder Zertifikate versionieren
+.env
+.env.*
+!.env.example
+runtime/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.pem
+*.key
+*.crt
+
+# Gesamtes lokales Laufzeitverzeichnis schützen
+data/*
+!data/attachments/
+data/attachments/*
+!data/attachments/.gitkeep
+*.json.bak
+*backup*.json

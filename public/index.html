@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102b33"><title>Hauskosten-Manager</title>
+  <link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><div class="brand-mark">⌂</div><div><b>HAUSKOSTEN</b><small>Manager · lokal</small></div></div>
+    <div class="side-label">VERWALTUNG</div>
+    <nav id="navigation" aria-label="Hauptnavigation">
+      <button data-nav="dashboard" class="active"><span>▦</span> Übersicht</button>
+      <button data-nav="households"><span>♙</span> Haushalte</button>
+      <button data-nav="meters"><span>◉</span> Zähler & Stände</button>
+      <button data-nav="tariffs"><span>≋</span> Tarife</button>
+      <button data-nav="invoices"><span>▤</span> Rechnungen</button>
+      <button data-nav="payments"><span>◎</span> Abschläge</button>
+      <div class="side-label side-group">AUSWERTUNG</div>
+      <button data-nav="report"><span>≡</span> Jahresabrechnung</button>
+      <button data-nav="forecast"><span>⌁</span> Prognose</button>
+      <div class="side-label side-group">SYSTEM</div>
+      <button data-nav="backup"><span>▧</span> Datensicherung</button>
+    </nav>
+    <div class="sidebar-bottom"><span class="live-dot"></span> Lokal auf diesem PC <small>Keine Cloud · SQLite</small></div>
+  </aside>
+  <div class="main-area">
+    <header class="topbar">
+      <button id="mobileMenu" class="mobile-menu" aria-label="Navigation öffnen">☰</button>
+      <div class="crumb"><span>Mehrgenerationenhaus</span><span class="slash">/</span><strong id="crumbLabel">Übersicht</strong></div>
+      <div class="top-right"><span class="local-chip"><span class="live-dot"></span> Lokal & privat</span><label class="year-label">Abrechnungsjahr <select id="yearPick" aria-label="Jahr auswählen"></select></label></div>
+    </header>
+    <main id="content" tabindex="-1"><div class="loading">Anwendung wird geladen …</div></main>
+    <footer>Hauskosten-Manager <span>·</span> Nur lokale Speicherung <span>·</span> Keine Steuer- oder Rechtsberatung</footer>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="formDialog"><form id="entryForm" class="entry-form"><div class="dialog-header"><div><small>DATENVERWALTUNG</small><h2 id="dialogTitle">Neuer Eintrag</h2></div><button class="icon-btn" type="button" id="closeModal" aria-label="Schließen">×</button></div><div id="formFields" class="form-fields"></div><div class="dialog-actions"><button class="btn secondary" type="button" id="cancelModal">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div></form></dialog>
+</body>
+</html>

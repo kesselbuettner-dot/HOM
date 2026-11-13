@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+runtime
+node_modules
+data
+tests
+*.sqlite
+*.sqlite-*
+*.zip
+.DS_Store

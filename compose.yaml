@@ -1,0 +1,48 @@
+# Sichere NAS-Variante: Die App ist nur innerhalb des Docker-Netzwerks erreichbar.
+# LAN-Zugang: https://villa-kunterbunt.net:8443 über Caddy mit Passwort.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      PORT: "4317"
+      HOST: "0.0.0.0"
+      HOM_ALLOWED_ORIGINS: "https://villa-kunterbunt.net:8443"
+      HAUSKOSTEN_DATA: /app/data
+    volumes:
+      - hom_data:/app/data
+      # Optional: PDFs in NAS-SMB-Freigabe speichern. Vorher Hostpfad
+      # und Schreibrechte für Container-UID 1000 konfigurieren:
+      # - /volume1/Hauskosten/Rechnungen:/app/data/attachments
+    networks:
+      - hom_internal
+    security_opt:
+      - no-new-privileges:true
+
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      HOM_PASSWORD_HASH: ${HOM_PASSWORD_HASH:?Bitte Passwort-Hash in .env setzen}
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - hom_caddy_data:/data
+      - hom_caddy_config:/config
+    networks:
+      - hom_internal
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  hom_internal:
+    driver: bridge
+
+volumes:
+  hom_data:
+  hom_caddy_data:
+  hom_caddy_config:

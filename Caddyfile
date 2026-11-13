@@ -1,0 +1,10 @@
+villa-kunterbunt.net:8443 {
+    tls internal
+    encode gzip
+    basic_auth {
+        hom {$HOM_PASSWORD_HASH}
+    }
+    reverse_proxy app:4317 {
+        header_up Host localhost:4317
+    }
+}
