@@ -9,9 +9,14 @@ const {parseMoney,positiveNumber,euro}=require('./src/money');
 const {validDate,yearReport,forecast}=require('./src/calc');
 const {createXlsx}=require('./src/xlsx');
 const {linesToPdf}=require('./src/pdf');
+const auth=require('./src/auth');
 const HOST=process.env.HOST||'127.0.0.1', PORT=Number(process.env.PORT||4317);
 const allowedOrigins=new Set([`http://127.0.0.1:${PORT}`,`http://localhost:${PORT}`,...(process.env.HOM_ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).filter(Boolean)]);
 const ROOT=path.join(__dirname,'public');
+if(!auth.enabled && !['127.0.0.1','localhost','::1'].includes(HOST)) {
+  throw new Error('NAS-/Netzwerkbetrieb ohne HOM_PASSWORD_HASH ist aus Sicherheitsgründen gesperrt.');
+}
+auth.init(db);
 const kinds=['strom','gas','wasser','abwasser','heizung','warmwasser','muell','versicherung','grundsteuer','sonstiges'];
 const distributions=['meter','area','persons','equal','custom'];
 const send=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
@@ -111,6 +116,22 @@ async function handle(req,res){
    if(req.method!=='GET' && req.headers.origin && !allowedOrigins.has(req.headers.origin))fail('Ungültiger Ursprung.',403);
    const u=new URL(req.url,`http://${req.headers.host}`);
    const p=u.pathname;
+   if (p==='/healthz' && req.method==='GET') {
+     res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}); return res.end('ok');
+   }
+   if (auth.enabled) {
+     if (p==='/login' && req.method==='GET') {
+       if (auth.isAuthenticated(db,req)) return auth.redirect(res,'/');
+       return serveStatic('/login.html',res);
+     }
+     if (p==='/login' && req.method==='POST') return await auth.login(db,req,res);
+     if (p==='/logout' && req.method==='POST') return auth.logout(db,req,res);
+     if (['/login.css','/login.js'].includes(p) && req.method==='GET') return serveStatic(p,res);
+     if (!auth.isAuthenticated(db,req)) {
+       if(p.startsWith('/api/')) return send(res,401,{error:'Bitte zuerst anmelden.'});
+       return auth.redirect(res,'/login');
+     }
+   }
    if(p.startsWith('/api/')){
      if(req.method==='GET'&&p==='/api/state')return send(res,200,{...snapshot(),year:YEAR});
      if(req.method==='GET'&&p==='/api/report')return send(res,200,report(Number(u.searchParams.get('year')||YEAR)));
