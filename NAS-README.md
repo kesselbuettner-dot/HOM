@@ -1,69 +1,85 @@
-# Hauskosten-Manager auf UGREEN DXP2800 (UGOS Pro)
+# HOM auf UGREEN DXP2800 – privates GitHub-Image (latest)
 
-## Sicherheit und Betriebszustand
+## Was wird installiert?
+- GitHub Repository: https://github.com/kesselbuettner-dot/HOM (privat)
+- Docker Image: `ghcr.io/kesselbuettner-dot/hom:latest`
+- Zugriffsadresse im LAN: `https://villa-kunterbunt.net:8443`
+- Login für alle Berechtigten: `hom`, gemeinsames selbst gewähltes Passwort
+- Datenbank und PDF-Anhänge: dauerhaft in Docker-Volume `hom_data`
+- Kein Internet-Portforwarding; keine Cloud-Anbindung zur Laufzeit außer für Image-Updates
 
-Diese Fassung ergänzt die Windows-Web-App um ein Dockerfile und ein Caddy-Gateway mit **HTTPS + Passwortschutz**. Die App selbst ist NICHT direkt als NAS-Port veröffentlicht. Standardmäßig sind Datenbank und PDFs in einem persistenten Docker-Volume `hom_data` gespeichert, **nicht im GitHub-Repository**. Das gemeinsame Login `hom` ist noch keine Haushalts-Rollenverwaltung.
+**GitHub Actions** unter `.github/workflows/docker-publish.yml` testet bei jedem Push auf `main` und baut danach das Image mit den Tags `latest` und `sha-...`. Unter **GitHub → Actions** zunächst prüfen, ob der erste Build erfolgreich war und unter **Packages** ein privates Image `hom` erscheint. Vorher kann die NAS es nicht herunterladen.
 
-**Nicht ins Internet freigeben.** Vor echten Abrechnungen die fachlichen Grenzen in README.md lesen. Der Container wurde in dieser Entwicklungsumgebung nicht auf einer echten DXP2800 gestartet; die vorhandenen Node-Tests wurden ausgeführt.
+## 1. Für das private GHCR-Image anmelden
+Die NAS muss sich bei GHCR anmelden, weil das Image privat bleiben soll.
 
-## 1. GitHub-Quellcode
-
-Private GitHub-Repository-Adresse: https://github.com/kesselbuettner-dot/HOM
-
-ZIP entpacken. Alle Projektdateien in das Repository übernehmen, *außer* `.env`, SQLite-Datenbanken, Backups, PDF-Rechnungen und Zertifikate. `.gitignore` verhindert einige versehentliche Uploads, ersetzt jedoch keine Prüfung vor `git add`.
-
-## 2. NAS-Docker-Projekt
-
-1. UGOS Pro → App Center → Docker installieren.
-2. Im NAS-Dateimanager einen Ordner für das Compose-Projekt anlegen, z. B. `Docker/HOM`; Projektdateien dorthin kopieren.
-3. Ein starkes, einzigartiges Passwort für den Benutzer `hom` wählen.
-4. In einem Terminal mit Docker **interaktiv** einen bcrypt-Hash erzeugen (das Passwort wird nicht als Kommandozeilenargument übergeben):
-
+1. Auf https://github.com/settings/tokens einen **personal access token (classic)** mit Berechtigung **read:packages** erstellen. Keine Schreibrechte oder Repository-Scopes hinzufügen, sofern nicht ausdrücklich erforderlich.
+2. Token nicht in die Compose-Datei oder in GitHub übertragen.
+3. Auf der NAS per SSH als berechtigter Benutzer ausführen:
    ```sh
-   docker run --rm -it caddy:2-alpine caddy hash-password
+   sudo docker login ghcr.io -u kesselbuettner-dot
    ```
+   Auf die Passwortabfrage **den Token** eingeben, nicht das GitHub-Passwort.
+4. Alternativ – falls die UGREEN-Docker-App eigene Registry-Anmeldungen anbietet – das Konto dort mit dem Token eintragen. Beachten: Ein CLI-Login des Root-Nutzers wird unter Umständen nicht vom GUI-Projekt übernommen. Bei Pull-Fehlern daher die Compose-Befehle über SSH ausführen.
 
-   Das Passwort am Prompt eingeben, den ausgegebenen Hash kopieren.
-5. `.env.example` in `.env` kopieren und in der Zeile `HOM_PASSWORD_HASH=` den kompletten Hash einsetzen. Falls der Hash Dollarzeichen enthält, den Hashwert in **einfache Anführungszeichen** setzen; z. B. `HOM_PASSWORD_HASH='$2a$...'`. `.env` niemals zu GitHub hochladen.
-6. UGOS Docker → **Projekt → Erstellen**; Compose-Projektdateien im gewählten Ordner verwenden, Build starten. Alternativ bei installiertem Docker Compose aus dem Projektordner:
+Das Token ist vertraulich. Bei kompromittiertem Token sofort widerrufen.
 
-   ```sh
-   docker compose up -d --build
-   docker compose ps
-   ```
+## 2. HTTPS-Passwort vorbereiten
+Ein einzigartiges Passwort wählen (mindestens 16 Zeichen). Der Benutzername der Website lautet `hom`.
 
-7. NAS-IP ermitteln. Im UniFi Cloud Gateway Fiber einen **lokalen A-Record** `villa-kunterbunt.net` auf die **NAS-IP** setzen. Anfragende Geräte müssen den UniFi-DNS verwenden.
-8. Dann im lokalen Netz `https://villa-kunterbunt.net:8443` öffnen und mit Benutzer `hom` und dem gewählten Passwort anmelden.
-
-## 3. HTTPS-Zertifikat
-
-Caddy erstellt mit `tls internal` ein **lokales Zertifikat**. Browser vertrauen dessen interner CA anfänglich nicht. Das CA-Root-Zertifikat liegt im Caddy-Datenvolume unter `/data/caddy/pki/authorities/local/root.crt`. Dieses Zertifikat ausschließlich auf Euren vertrauenswürdigen Endgeräten importieren. Die Zertifikatswarnung nicht dauerhaft ignorieren. Der eigene Domainname muss im Heimnetz auf die NAS-IP auflösen.
-
-`8443` ist absichtlich gewählt, um Konflikte mit dem NAS auf 80/443 zu vermeiden. Eine Adresse ohne Port erfordert anschließend einen entsprechend konfigurierten HTTPS-Reverse-Proxy auf 443. Darauf achten, dass kein ungeschützter Zugriff auf den App-Container möglich wird.
-
-## 4. Datenablage und SMB
-
-In der Standardkonfiguration liegen Datenbank und PDFs im Docker-Volume `hom_data` (`/app/data`). Hiermit startet der Container ohne problematische SMB-Dateisperren. Die **aktive SQLite-Datei niemals auf ein Netzlaufwerk/SMB-Mount legen**.
-
-Für direkten SMB-Zugriff auf Rechnungs-PDFs können die `compose.yaml`-Zeilen für die Bind-Mount-Option nach Anpassung des **tatsächlichen NAS-Pfads** aktiviert werden:
-
-```yaml
-- /NAS-ABSOLUTER-PFAD/Hauskosten/Rechnungen:/app/data/attachments
+Auf der NAS per SSH:
+```sh
+sudo docker run --rm -it caddy:2-alpine caddy hash-password
 ```
+Den ausgegebenen Hash kopieren (das Passwort selbst nirgendwo in YAML/Repository eintragen).
 
-Den absoluten Pfad unter UGOS Pro → Dateien → **Speicherpfad kopieren** ermitteln. Vor dem Start sicherstellen, dass der Containerbenutzer `node` (UID 1000) auf dem Zielordner lesen und schreiben darf. Hostseitiges SMB nicht schreibend für andere Benutzer freigeben, wenn Originalrechnungen unverändert bleiben sollen. Die App bietet derzeit keine direkte Dateiexport-Automatik in beliebige SMB-Verzeichnisse; PDF-Abrechnungen werden im Browser als Download erzeugt.
+Projektordner auf NAS erstellen, z. B. `Docker/HOM`. Dort eine Datei `.env` anlegen:
+```dotenv
+HOM_PASSWORD_HASH='$2a$HIER-DEN-VOLLSTAENDIGEN-BCRYPT-HASH-EINSETZEN'
+```
+Der Text ist ein Platzhalter. Verwende den echten Hash in einfachen Anführungszeichen. `.env` niemals committen.
 
-## 5. Backups und Aktualisierung
+## 3. Projekt erstellen – nur YAML im UGREEN-Editor
+1. UGOS Pro → **Docker → Projekt → Erstellen**.
+2. Projektname `hom`, Projektordner `Docker/HOM` (mit `.env`).
+3. Inhalt der Datei [compose-ugreen.yaml](compose-ugreen.yaml) in den YAML-Editor kopieren.
+4. Bereitstellen. Es müssen die Container `app` und `gateway` laufen.
 
-- In der App den JSON-Backup-Export verwenden; enthält alle Rechnungen inkl. Belege und ist **vertraulich**.
-- Zusätzlich das Docker-Volume `hom_data` als konsistente Sicherung kopieren, nachdem die App gestoppt wurde (WAL-Dateien beachten). Nicht nur die laufende SQLite-Hauptdatei allein kopieren.
-- Vor Docker-Updates und Datenbankmigrationen Sicherung erstellen.
-- Änderungen nur über private Git-Branches/PRs entwickeln, Tests ausführen, danach NAS-App aktualisieren.
+**Kompatibilität:** `compose-ugreen.yaml` nutzt `configs.content` zum Einbetten des Caddy-Login-Setups. Das verlangt Docker Compose >= 2.23.1. Falls die Docker-App diese Syntax nicht unterstützt, stattdessen [compose.yaml](compose.yaml) benutzen und die Datei [Caddyfile](Caddyfile) in denselben NAS-Projektordner legen. Beide beziehen die App aus `ghcr.io/kesselbuettner-dot/hom:latest`; der Quellcode muss dafür nicht auf das NAS.
 
-## 6. Sicherheitshinweise
+Per SSH zum Prüfen (Ordnerpfad an NAS anpassen):
+```sh
+cd /ABSOLUTER/NAS-PFAD/Docker/HOM
+sudo docker compose -f compose-ugreen.yaml config --quiet
+sudo docker compose -f compose-ugreen.yaml up -d
+sudo docker compose -f compose-ugreen.yaml ps
+```
+Falls die YAML nur im UGREEN-Projekt gespeichert ist, deren tatsächlich angelegten Compose-Dateinamen verwenden.
 
-- Kein Port-Forwarding am Router, keine Cloudflare-Tunnel-Konfiguration.
-- Ein einzelnes Gateway-Passwort schützt die gesamte Anwendung; **es gibt noch keine getrennten Zugriffsrechte pro Haushalt**. Daher vorerst nur für berechtigte Administratoren freigeben.
-- Die gewählte Domain gehört im LAN in Euren lokalen DNS. Öffentliche DNS-Einträge sind nicht nötig.
-- `HOM_ALLOWED_ORIGINS` in `compose.yaml` muss zur exakten externen URL passen (derzeit `https://villa-kunterbunt.net:8443`).
-- Die ursprüngliche App prüft weiterhin den internen Hostnamen `localhost`; Caddy setzt genau diesen Host-Header für das Backend.
+## 4. DNS und HTTPS
+Im UniFi Gateway einen **lokalen A-Record** `villa-kunterbunt.net` auf die IP-Adresse der **UGREEN NAS** setzen. Keine öffentliche Weiterleitung von Port 8443. Browser im Heimnetz: `https://villa-kunterbunt.net:8443`. Login `hom`.
+
+Caddy erzeugt ein **lokales Zertifikat** (`tls internal`). Damit der Browser ohne Warnung vertraut, das Caddy-Root-Zertifikat aus dem persistenten Caddy-Datenvolume sicher auf den gewählten Endgeräten installieren. Keine Zertifikatswarnung dauerhaft wegklicken.
+
+## 5. Update aus GitHub latest
+Jeder Push auf `main` baut nach erfolgreichen Tests ein neues Image und markiert es als `latest`. Ein laufender Container wird durch den Tag `latest` **nicht automatisch aktualisiert**.
+
+**In UGOS Pro**: Docker → Container/Projekt → auf Update prüfen → **Aktualisieren** oder bei **Neu bereitstellen** die Option **Das neueste Image abrufen** aktivieren (je nach App-Version).
+
+Alternativ im richtigen Compose-Projektordner per SSH:
+```sh
+sudo docker compose pull app
+sudo docker compose up -d
+```
+`pull_policy: always` sorgt beim Compose-Bereitstellen für das Abfragen der aktuellen Image-Version. Kein Watchtower erforderlich. Das Image sollte erst nach erfolgreichen Tests und vorzugsweise nach einem Backup eingespielt werden. Automatische zeitgesteuerte Aktualisierung kann später als separater, eingeschränkter Job ergänzt werden.
+
+## 6. Daten / SMB / Backup
+- Aktive SQLite-Datenbank ausschließlich im lokalen NAS-Dateisystem / Docker-Volume `hom_data` halten – **nicht über SMB mounten**.
+- Hochgeladene Rechnungs-PDFs liegen standardmäßig unter `/app/data/attachments` innerhalb dieses persistenten Volumes.
+- Für SMB-Rechnungszugriff optional einen *separaten NAS-Ordner* an `/app/data/attachments` binden; vorher echten Pfad und Rechte prüfen. Nicht beim laufenden Betrieb unbedacht umstellen.
+- Vor Datenbankänderungen oder Updates vollständiges JSON-Backup in der App exportieren (enthält vertrauliche PDFs!) und gesicherte Volume-Kopie erstellen.
+- Bei `docker compose down` KEIN `-v` angeben, sonst könnten die Datenvolumes entfernt werden.
+- Gemeinsame Zugangsdaten bieten **keine** Zuordnung, wer eine Rechnung oder einen Zählerstand verändert hat; alle Nutzer haben die gleichen Rechte.
+
+## 7. Sicherheits- und Fachgrenzen
+Nicht öffentlich im Internet freigeben. Das Gateway ist der einzige veröffentlichte Port; die App selbst ist nur im internen Docker-Netz erreichbar. Für die inhaltlichen Einschränkungen (Heizkostenverordnung, Bewohnerwechsel, Rechnungen über mehrere Jahre) siehe [README.md](README.md). Der Docker-Betrieb auf Eurer konkreten DXP2800 ist erst nach der ersten Installation verifiziert.
