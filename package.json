@@ -1,12 +1,17 @@
 {
   "name": "hauskosten-manager",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Lokaler Hauskosten-Manager für Mehrgenerationenhäuser – ohne externe Laufzeit-Abhängigkeiten",
-  "engines": { "node": ">=22.13.0" },
+  "description": "Lokaler Hauskosten-Manager mit HTTPS-Anmeldung für Mehrgenerationenhäuser",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "start": "node server.js",
     "test": "node --test tests/*.test.js"
   },
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "dependencies": {
+    "bcryptjs": "3.0.3"
+  }
 }
