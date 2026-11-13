@@ -1,8 +1,10 @@
+**Neu: [HOM-Anmeldung und Zertifikate](HTTPS-LOGIN.md) · [UGREEN-YAML für Version 1.1](compose-ugreen-login.yaml)**
+
 # Hauskosten-Manager
 
 **Lokale, deutschsprachige Web-App für ein privates Mehrgenerationenhaus.**
 
-Version: 1.0 · Stand: November 2026 · Betrieb **ohne Cloud, ohne Datenversand und ohne npm-Pakete**. Erstellt als überprüfbarer erster Projektstand – keine rechtlich geprüfte Nebenkostenabrechnungssoftware.
+Version: 1.0 · Stand: November 2026 · Betrieb **ohne Cloud, ohne Datenversand (mit bcryptjs für die NAS-Anmeldung)**. Erstellt als überprüfbarer erster Projektstand – keine rechtlich geprüfte Nebenkostenabrechnungssoftware.
 
 ## DXP2800 / Docker
 
@@ -12,7 +14,7 @@ Für den NAS-Betrieb mit lokalem HTTPS und Passwortschutz siehe **[NAS-README.md
 
 1. ZIP vollständig entpacken, z. B. nach `C:\Hauskosten-Manager`.
 2. **Node.js 22.13 oder neuer** installieren: https://nodejs.org/ (vorzugsweise aktuelle LTS-Version).
-3. Die Datei **`start-windows.bat`** doppelklicken. Ein Terminalfenster bleibt geöffnet.
+3. Einmal im Projektordner `npm install` ausführen, dann die Datei **`start-windows.bat`** doppelklicken. Ein Terminalfenster bleibt geöffnet.
 4. Im Browser **http://127.0.0.1:4317** aufrufen.
 5. Zum Beenden im Terminal `Strg+C` drücken. Daten bleiben gespeichert.
 
@@ -23,7 +25,7 @@ cd C:\Hauskosten-Manager
 node server.js
 ```
 
-Die App hat **keine externen Laufzeit-Abhängigkeiten**. Kein `npm install` notwendig. Hinweis: Node 22 meldet eventuell, dass `node:sqlite` noch experimentell ist – diese Meldung allein ist kein Fehler.
+Die App verwendet für die NAS-Anmeldung die kleine Bibliothek `bcryptjs`. Vor dem Windows-Start einmal `npm install` ausführen. Hinweis: Node 22 meldet eventuell, dass `node:sqlite` noch experimentell ist – diese Meldung allein ist kein Fehler.
 
 ## Sofort testen
 
@@ -63,7 +65,7 @@ Die folgenden Regeln werden explizit angewandt. **Bitte vor einer tatsächlichen
 - Zählerwechsel/Überläufe, mit denen negative Verbrauchsdifferenzen zuverlässig als separater Vorgang verarbeitet werden.
 - Automatische PDF-Rechnungserkennung/OCR. Rechnungsfelder werden zunächst **manuell** erfasst; Originalbeleg wird unverändert abgelegt.
 - Abgeschlossenes, unveränderliches Jahresarchiv mit Versionierung und Buchungssperre.
-- Mehrbenutzerbetrieb, Benutzeranmeldung, Smartphone-Zugriff über das Heimnetz, freigeschaltete Netzwerkdienste, Rollen/Rechte.
+- Separate Benutzerkonten, Haushaltsrollen und ein revisionssicheres Änderungsprotokoll. Auf dem NAS gibt es bereits einen gemeinsamen Login mit gleichen Rechten.
 
 **Das Programm ist eine private Kosten- und Prognoserechenhilfe, nicht automatisch eine rechtsverbindliche Mieter- oder Heizkostenabrechnung.** Kein Produktivbetrieb als öffentlich erreichbarer Webserver ohne zusätzliche Zugangskontrolle und Sicherheitsprüfung.
 
