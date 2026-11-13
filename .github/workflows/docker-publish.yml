@@ -23,6 +23,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Abhängigkeiten installieren
+        run: npm install --no-audit --no-fund
+
       - name: Anwendungstests
         run: npm test
 
