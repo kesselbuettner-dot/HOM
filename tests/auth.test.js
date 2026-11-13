@@ -29,7 +29,7 @@ test('HOM: Loginseite, API-Schutz, 30-Tage-Cookie, Abmeldung', async (t) => {
 
   const loginPage=await fetch(url+'/login',options);
   assert.equal(loginPage.status,200);
-  assert.match(await loginPage.text(),/Angemeldet bleiben/);
+  assert.match(await loginPage.text(),/30 Tage angemeldet bleiben/);
 
   const login=async (password,remember=false)=>fetch(url+'/login',{
     method:'POST',redirect:'manual',
