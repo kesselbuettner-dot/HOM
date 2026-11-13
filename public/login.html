@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102f39">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Anmelden · Villa Kunterbunt</title>
+  <link rel="stylesheet" href="/login.css">
+  <script src="/login.js" defer></script>
+</head>
+<body>
+  <main class="login-container">
+    <div class="hero"><span class="hero-symbol" aria-hidden="true">⌂</span><span class="hero-name">VILLA KUNTERBUNT</span></div>
+    <section class="login-card" aria-labelledby="title">
+      <div class="eyebrow">HAUSKOSTEN-MANAGER</div>
+      <h1 id="title">Willkommen zurück</h1>
+      <p>Bitte meldet Euch an, um Verbräuche, Rechnungen und Abrechnungen zu verwalten.</p>
+      <div id="error" class="error" role="alert" hidden>Benutzername oder Passwort ist falsch.</div>
+      <form action="/login" method="post" autocomplete="on">
+        <label for="username">Benutzername</label>
+        <input id="username" name="username" autocomplete="username" value="hom" required autofocus>
+        <label for="password">Passwort</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <label class="remember"><input type="checkbox" name="remember"> Auf diesem Gerät 30 Tage angemeldet bleiben</label>
+        <button type="submit">Sicher anmelden</button>
+      </form>
+      <small>Das Passwort könnt Ihr über den Passwortmanager Eures Browsers speichern. Die Anwendung speichert es nicht im Klartext.</small>
+    </section>
+    <footer>Privater Zugang für die Bewohner · Hauskosten-Manager</footer>
+  </main>
+</body>
+</html>
