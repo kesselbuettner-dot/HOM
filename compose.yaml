@@ -1,6 +1,5 @@
-# HOM auf UGREEN DXP2800: App-Image aus privater GitHub Container Registry.
-# Erfordert: docker login ghcr.io und HOM_PASSWORD_HASH in .env.
-# Kein Quellcode-Build auf dem NAS. Neueste Version: docker compose pull && docker compose up -d.
+# Dateibasierte Compose-Version (Caddyfile daneben). NAS-Port 443 muss frei sein.
+name: hom
 services:
   app:
     image: ghcr.io/kesselbuettner-dot/hom:latest
@@ -9,40 +8,30 @@ services:
     environment:
       PORT: "4317"
       HOST: "0.0.0.0"
-      HOM_ALLOWED_ORIGINS: "https://villa-kunterbunt.net:8443"
+      HOM_ALLOWED_ORIGINS: "https://villa-kunterbunt.net"
+      HOM_PASSWORD_HASH: ${HOM_PASSWORD_HASH:?Bitte Passwort-Hash in .env hinterlegen}
       HAUSKOSTEN_DATA: /app/data
     volumes:
       - hom_data:/app/data
-      # Optional: NAS-Rechnungsordner (Pfad und Schreibrechte vorher kontrollieren)
-      # - /NAS/ABSOLUTER/PFAD/Hauskosten/Rechnungen:/app/data/attachments
     networks:
       - hom_internal
-    security_opt:
-      - no-new-privileges:true
-
   gateway:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
       app:
         condition: service_healthy
-    environment:
-      HOM_PASSWORD_HASH: ${HOM_PASSWORD_HASH:?Bitte den Passwort-Hash in .env hinterlegen}
     ports:
-      - "8443:8443"
+      - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - hom_caddy_data:/data
       - hom_caddy_config:/config
     networks:
       - hom_internal
-    security_opt:
-      - no-new-privileges:true
-
 networks:
   hom_internal:
     driver: bridge
-
 volumes:
   hom_data:
   hom_caddy_data:
