@@ -1,0 +1,1 @@
+'use strict'; const params = new URLSearchParams(location.search);const error = document.getElementById('error');if(params.get('error')) {error.hidden=false;if(params.get('error')==='limit')error.textContent='Zu viele Fehlversuche. Bitte in einigen Minuten erneut versuchen.';} 
