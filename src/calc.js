@@ -60,7 +60,7 @@ function allocInvoice(invoice, households, meters, readings) {
     return { shares: { [invoice.household_id]: invoice.amount_cents }, notes: [], method: 'direkt' };
   }
   if (!active.length) throw new Error('Keine aktiven Haushalte zum Abrechnen vorhanden.');
-  let weights, notes=[];
+  let weights, notes=[],gasDetails=null;
   if (invoice.distribution === 'meter') {
     const relevant = meters.filter(m => m.kind === invoice.kind && m.active);
     if(invoice.kind==='gas'&&invoice.gas_calorific_kwh_m3&&invoice.gas_condition_factor&&relevant.some(m=>m.unit!=='m³')) {
@@ -112,7 +112,7 @@ function allocInvoice(invoice, households, meters, readings) {
         gas.total_energy_kwh=Number(gas.total_energy_kwh.toFixed(3));
         notes.push('Gasumrechnung: '+gas.total_volume_m3.toFixed(3)+' m³ × '+calorific+' kWh/m³ × '+condition+
           ' = '+gas.total_energy_kwh.toFixed(3)+' kWh (Rechnungsfaktoren).');
-        invoice._gas_details=gas;
+        gasDetails=gas;
       }else{
         notes.push('Gas in m³ verteilt; Brennwert/Zustandszahl fehlen. Keine kWh-Umrechnung für diese Rechnung.');
       }
@@ -124,7 +124,7 @@ function allocInvoice(invoice, households, meters, readings) {
     weights = commonWeights(active, invoice.distribution);
   }
   if (weights.reduce((s,[,w])=>s+w,0) <= 0) throw new Error('Die Umlage hat keine positiven Gewichte.');
-  return { shares:splitCents(invoice.amount_cents,weights), notes, method:invoice.distribution,gas:invoice._gas_details||null };
+  return { shares:splitCents(invoice.amount_cents,weights), notes, method:invoice.distribution,gas:gasDetails };
 }
 function yearReport(year, { households, meters, readings, invoices, payments, standing_orders=[] },today=new Date().toISOString().slice(0,10)) {
   const hh = households.filter(h=>h.active || invoices.some(i=>i.household_id===h.id) || payments.some(p=>p.household_id===h.id));
