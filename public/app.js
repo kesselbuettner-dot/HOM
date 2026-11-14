@@ -296,7 +296,12 @@ async function verifyPaperlessPermissions(form){
  if(out)out.textContent=result.denied?
  'Erfolgreich: HOM-Archivbenutzer kann dieses private Dokument nicht abrufen.':
  'UNSICHER: Der Archivbenutzer kann dieses private Dokument abrufen! Bitte Dokumentrechte in Paperless korrigieren, bevor Ihr die Integration verwendet.';
- if(!result.denied)notify('Archivzugriff ist zu weit gefasst!',true);
+ if(result.denied){
+   $('paperlessStatus').textContent='Paperless ist nach bestandenem Privatzugriffstest freigegeben.';
+ }else{
+   $('paperlessStatus').textContent='UNSICHER: Archivzugriff wurde gesperrt. Dienstbenutzerrechte korrigieren.';
+   notify('Archivzugriff ist zu weit gefasst!',true);
+ }
 }
 
 function modalFields(type,preset={}) {
@@ -428,7 +433,8 @@ function register(){
    if(target.dataset.paperlessClear!==undefined){clearPaperlessDocument();return;}
    if(target.dataset.paperlessStatus!==undefined){
      try{const data=await api('/api/paperless/status');
-       $('paperlessStatus').textContent=data.configured?'Paperless bereit. Zusätzlichen Privatzugriffstest durchführen.':
+       $('paperlessStatus').textContent=data.verified?'Paperless ist nach bestandenem Privatzugriffstest freigegeben.':
+         data.configured?'Paperless konfiguriert, aber noch GESPERRT: Zuerst den Privatzugriffstest mit einer bekannten vertraulichen Dokument-ID durchführen.':
          'Noch nicht eingerichtet. Benötigt URL, technischen API-Token, HOM-Freigabe-Tag-ID und erlaubte Kategorien in der NAS-.env.';}
      catch(error){notify(error.message,true);}return;
    }
