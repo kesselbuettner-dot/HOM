@@ -44,6 +44,9 @@ test('Admin kann Accounts verwalten, Titel ändern; Mitglieder dürfen alle Haus
   r=await request('/api/users','POST',{username:'familie1',display_name:'Familie Eins',password:'EigenesFamilienPasswort!234',role:'user'},admin);
   assert.equal(r.resp.status,201);
   const memberId=r.value.user.id;
+  r=await request('/api/users','POST',{username:'pausiert',display_name:'Noch gesperrt',password:'NochNichtAktiv!123456',role:'user',active:false},admin);
+  assert.equal(r.resp.status,201);
+  assert.equal(r.value.user.active,0);
   const family=await login('FAMILIE1','EigenesFamilienPasswort!234');
   r=await request('/api/auth/me','GET',undefined,family);
   assert.equal(r.value.user.role,'user');
