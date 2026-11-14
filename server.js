@@ -415,6 +415,7 @@ async function handle(req,res){
          const body=await parseBody(req);
          const clean=validate(table,body);
          if((table==='invoices'||table==='tariffs')&&clean.paperless_document_id!==null){
+           requirePaperlessApproval();
            const doc=await paperless.document(clean.paperless_document_id);
            clean.paperless_document_id=doc.id;
          }
