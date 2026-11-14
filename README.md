@@ -1,3 +1,5 @@
+**Neu: [Gasumrechnung, Kündigungsfristen und Daueraufträge](GAS-VERTRAEGE-ABSCHLAEGE.md)**
+
 **Neu: [Benutzerverwaltung und Hauseinstellungen](BENUTZERVERWALTUNG.md)** · Adminrechte, Hausname und NAS-Update.
 
 **Neu: [HOM-Anmeldung und Zertifikate](HTTPS-LOGIN.md) · [UGREEN-YAML für Version 1.1](compose-ugreen-login.yaml)**

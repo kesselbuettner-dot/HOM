@@ -9,7 +9,7 @@ const kinds={strom:'Strom',gas:'Gas',wasser:'Wasser',abwasser:'Abwasser',heizung
 const methods={meter:'Nach Unterzählern',area:'Wohnfläche',persons:'Personen',equal:'Gleichmäßig',custom:'Individuelle Gewichte'};
 const labels={dashboard:'Übersicht',households:'Haushalte',meters:'Zähler & Stände',tariffs:'Tarife',invoices:'Rechnungen',payments:'Abschläge',report:'Jahresabrechnung',forecast:'Kostenprognose',backup:'Datensicherung',users:'Benutzerverwaltung',settings:'Hauseinstellungen',profile:'Mein Konto'};
 const KindsOptions=Object.entries(kinds).map(([value,label])=>({value,label}));
-let db={households:[],meters:[],readings:[],tariffs:[],invoices:[],payments:[]},report=null;
+let db={households:[],meters:[],readings:[],tariffs:[],invoices:[],payments:[],standing_orders:[]},report=null;
 let account=null, houseTitle='Villa Kunterbunt', users=[];
 let view='dashboard', year=new Date().getFullYear(), modalType='', editingID=null, forecastResult=null, timer;
 const root=$('content');
@@ -37,6 +37,28 @@ function editBtn(type,id){return `<button class="btn secondary small" data-edit=
 function delBtn(type,id){return `<button class="btn danger small" data-del="${type}" data-id="${id}" title="Diesen Eintrag löschen">Löschen</button>`;}
 function topStats(){const m=report.totals;return `<div class="stat-grid">
   ${[["Abgerechnete Kosten",currency(m.cost_cents),'▤',`Rechnungen im Jahr ${year}`],["Erhaltene Abschläge",currency(m.paid_cents),'◎','Gebuchte Zahlungen'],["Offener Saldo",currency(m.balance_cents),'↗',m.balance_cents>=0?'Noch auszugleichen':'Guthaben'],["Haushalte",String(db.households.filter(h=>h.active).length),'⌂','Aktive Wohneinheiten']].map(s=>`<div class="card stat"><div class="stat-icon">${s[2]}</div><div class="stat-label">${s[0]}</div><div class="stat-value">${s[1]}</div><div class="stat-meta">${s[3]}</div></div>`).join('')}</div>`;}
+function dateDiffDays(a,b){
+ return Math.round((Date.parse(a+'T00:00:00Z')-Date.parse(b+'T00:00:00Z'))/86400000);
+}
+function contractReminders(){
+ const today=new Date(),day=[today.getFullYear(),String(today.getMonth()+1).padStart(2,'0'),String(today.getDate()).padStart(2,'0')].join('-');
+ return (db.tariffs||[]).filter(t=>t.cancellation_deadline&&!t.cancellation_done)
+ .map(t=>({...t,days_left:dateDiffDays(t.cancellation_deadline,day)}))
+ .filter(t=>t.days_left<=Number(t.reminder_days??42))
+ .sort((a,b)=>a.days_left-b.days_left);
+}
+function remindersCard(){
+ const reminders=contractReminders();
+ if(!reminders.length)return '';
+ return '<section class="card contract-reminders"><div class="card-head"><div><h2>Vertragskündigungen</h2><p>Fällige Termine aus Euren Tarifen</p></div>'+badge(String(reminders.length)+' Hinweise','warn')+'</div>'+
+ reminders.map(t=>'<div class="contract-reminder"><span class="contract-icon">'+(t.days_left<0?'!':'◷')+'</span><div><b>'+E(t.provider)+' – '+E(kinds[t.kind]||t.kind)+'</b><div class="tiny muted">Kündigungstermin: '+dateDE(t.cancellation_deadline)+(t.contract_end?' · Ende '+dateDE(t.contract_end):'')+'</div></div><strong class="'+(t.days_left<0?'overdue-text':'')+'">'+(t.days_left<0?Math.abs(t.days_left)+' Tage überfällig':t.days_left===0?'Heute fällig':'Noch '+t.days_left+' Tage')+'</strong></div>').join('')+
+ '<p class="muted tiny" style="margin-top:12px">Nur Erinnerungen im HOM-Dashboard, keine automatische Kündigung oder E-Mail.</p><button class="btn secondary small" data-nav="tariffs">Tarife prüfen</button></section>';
+}
+function gasInfo(i){
+ if(i.kind!=='gas')return '';
+ if(i.gas)return '<div class="tiny muted">'+number(i.gas.total_volume_m3)+' m³ ≈ '+number(i.gas.total_energy_kwh)+' kWh</div>';
+ return '<div class="tiny muted">Gasumrechnung nicht hinterlegt</div>';
+}
 function dashboard(){
   const costs=Object.entries(report.kinds).sort((a,b)=>b[1]-a[1]);
   const max=Math.max(...costs.map(x=>x[1]),1);
@@ -45,7 +67,7 @@ function dashboard(){
   return page('Alles im Blick','Verbräuche, Kosten und die Verteilung auf Eure Haushalte.',addButton('reading','Zählerstand eintragen')+addButton('invoice','Rechnung erfassen'))+
   (noHouse?`<div class="notice info"><b>Willkommen!</b> Legt zunächst Eure Haushalte an oder ladet fiktive Beispieldaten, um die Anwendung zu erkunden. <button class="btn secondary small" data-demo>Beispieldaten laden</button></div>`:'')+
   (overdue?`<div class="notice error">⚠ <b>Abrechnung unvollständig:</b> ${E(report.warnings[0])} <button class="btn secondary small" data-nav="report">Details ansehen</button></div>`:'')+
-  topStats()+`<div class="dashboard-grid"><div class="stack"><section class="card"><div class="card-head"><div><h2>Kosten nach Kategorie</h2><p>Abgerechnete Lieferantenrechnungen ${year}</p></div>${badge('Alle Kosten')}</div>${costs.length?`<div class="bar-chart">${costs.slice(0,7).map(([kind,c])=>`<div class="bar-column"><div class="bar" style="height:${Math.max(4,Math.round(c/max*127))}px" title="${E(kind)} ${currency(c)}"></div><small>${E(kinds[kind]||kind)}</small></div>`).join('')}</div><p class="chart-caption">Basis: Rechnungen mit Periodenende im Jahr ${year}</p>`:empty('▤','Noch keine Kosten','Erfasst Rechnungen, um die Auswertung zu starten.')}</section>
+  remindersCard()+topStats()+`<div class="dashboard-grid"><div class="stack"><section class="card"><div class="card-head"><div><h2>Kosten nach Kategorie</h2><p>Abgerechnete Lieferantenrechnungen ${year}</p></div>${badge('Alle Kosten')}</div>${costs.length?`<div class="bar-chart">${costs.slice(0,7).map(([kind,c])=>`<div class="bar-column"><div class="bar" style="height:${Math.max(4,Math.round(c/max*127))}px" title="${E(kind)} ${currency(c)}"></div><small>${E(kinds[kind]||kind)}</small></div>`).join('')}</div><p class="chart-caption">Basis: Rechnungen mit Periodenende im Jahr ${year}</p>`:empty('▤','Noch keine Kosten','Erfasst Rechnungen, um die Auswertung zu starten.')}</section>
   <section class="card"><div class="card-head"><div><h2>Aktuelle Rechnungen</h2><p>Die letzten erfassten Belege</p></div><button class="btn secondary small" data-nav="invoices">Alle anzeigen</button></div>${table(['Lieferant','Kategorie','Zeitraum','Betrag'],db.invoices.slice(0,5).map(i=>tr([`<b>${E(i.provider)}</b>`,badge(kinds[i.kind]||i.kind,'neutral'),`${dateDE(i.period_start)} – ${dateDE(i.period_end)}`,`<b>${currency(i.amount_cents)}</b>`])),empty('▤','Keine Rechnungen','Erfasst Eure erste Rechnung.'))}</section></div>
   <div class="stack"><section class="card"><div class="card-head"><div><h2>Kosten je Haushalt</h2><p>Aktuelles Abrechnungsjahr</p></div></div>${report.households.length?`<div class="meter-stack">${report.households.map(h=>`<div><div class="split-line"><span class="name">${E(h.name)}</span><span class="value">${currency(h.cost_cents)}</span></div><div class="meter-track" style="margin-top:10px"><span style="width:${report.totals.cost_cents?Math.max(1,Math.round(h.cost_cents/report.totals.cost_cents*100)):0}%"></span></div></div>`).join('')}</div><div class="mini-stat"><span class="muted">Gesamtkosten</span><b>${currency(report.totals.cost_cents)}</b></div>`:empty('⌂','Keine Haushalte','Legt zunächst Wohneinheiten an.')}</section>
   <section class="card"><div class="card-head"><h2>In drei Schritten starten</h2></div><div class="legend-list"><div>① <b>Haushalte</b> mit Fläche und Personen anlegen</div><div>② <b>Zähler</b> und Ablesewerte erfassen</div><div>③ <b>Rechnungen</b> samt Umlageschlüssel hinterlegen</div></div><p class="report-footnote">Danach erzeugt die Jahresabrechnung automatisch Kostenanteile, Nachzahlungen und Guthaben.</p><button class="btn secondary" style="margin-top:15px" data-nav="report">Zur Jahresabrechnung →</button></section></div></div>`;
@@ -56,18 +78,61 @@ function meters(){
   const rd=db.readings.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,12).map(r=>{const m=db.meters.find(m=>m.id===r.meter_id);return tr([dateDE(r.date),E(m?.name||'?'),`${number(r.value_milli/1000)} ${E(m?.unit||'')}`,`<div class="table-actions">${editBtn('reading',r.id)}${delBtn('readings',r.id)}</div>`]);});
   return page('Zähler & Verbräuche','Haupt- und Unterzähler anlegen und Ablesungen dokumentieren.',addButton('meter','Zähler anlegen')+addButton('reading','Stand eintragen'))+`<section class="card"><div class="card-head"><div><h2>Zählerübersicht</h2><p>Zähler mit den letzten gespeicherten Ständen</p></div></div>${table(['Zähler','Art','Zuordnung','Letzter Stand','Aktion'],rows)}</section><section class="card" style="margin-top:20px"><div class="card-head"><h2>Letzte Ablesungen</h2></div>${table(['Datum','Zähler','Stand','Aktion'],rd)}</section><div class="notice info" style="margin-top:20px">Für eine verbrauchsbasierte Abrechnung sind Ablesungen am Anfang und Ende des Rechnungszeitraums nötig. Zwischenwerte können interpoliert werden; nach außen wird nie extrapoliert.</div>`;
 }
-function tariffs(){return page('Tarife & Preise','Arbeitspreise und Grundpreise als Historie dokumentieren.',addButton('tariff','Tarif erfassen'))+`<section class="card">${table(['Versorger','Kostenart','Gültig ab','Arbeitspreis','Grundpreis / Monat','Aktion'],db.tariffs.map(t=>tr([`<b>${E(t.provider)}</b>`,E(kinds[t.kind]||t.kind),dateDE(t.valid_from),`${number(t.unit_price_eur)} €/Einheit`,`${number(t.base_month_eur)} €`,`<div class="table-actions">${editBtn('tariff',t.id)}${delBtn('tariffs',t.id)}</div>`])))}</section><div class="notice info" style="margin-top:18px">Die endgültige Kostenverteilung erfolgt anhand der tatsächlich eingetragenen Rechnungsbeträge. Tarife dienen aktuell zur Dokumentation; die Szenarioprognose verwendet historische Gesamtkosten und frei gewählte Wachstumsannahmen.</div>`;}
-function invoices(){return page('Rechnungen & Belege','Lieferantenrechnungen mit Abrechnungszeitraum, Umlage und optionaler PDF-Anlage.',addButton('invoice','Rechnung erfassen'))+`<section class="card">${table(['Rechnungssteller','Kategorie','Zeitraum','Umlage','Betrag','Beleg','Aktion'],db.invoices.map(i=>tr([`<b>${E(i.provider)}</b><div class="tiny muted">${E(i.invoice_number)}</div>`,E(kinds[i.kind]||i.kind),`${dateDE(i.period_start)}<br>${dateDE(i.period_end)}`,E(i.household_id?'Direkt':methods[i.distribution]||i.distribution),`<strong>${currency(i.amount_cents)}</strong>`,i.attachment_file?`<a href="/api/attachment?id=${i.id}" class="inline-link">PDF ↧</a>`:'–',`<div class="table-actions">${editBtn('invoice',i.id)}${delBtn('invoices',i.id)}</div>`])),empty('▤','Noch keine Rechnungen','Für die Abrechnung zunächst Rechnungen erfassen.',addButton('invoice','Rechnung erfassen')))}</section><div class="notice info" style="margin-top:18px">Eine Rechnung zählt zu dem Jahr, in dem ihr Abrechnungszeitraum endet. Für eine rechtlich verbindliche Heizkostenabrechnung muss die Heizkostenverordnung gesondert geprüft werden.</div>`;}
-function payments(){return page('Abschläge & Zahlungen','Bereits geleistete Vorauszahlungen der Haushalte dokumentieren.',addButton('payment','Zahlung eintragen'))+`<section class="card">${table(['Datum','Haushalt','Bemerkung','Betrag','Aktion'],db.payments.map(p=>{const h=db.households.find(h=>h.id===p.household_id);return tr([dateDE(p.date),`<strong>${E(h?.name||'?')}</strong>`,E(p.note||'Abschlag'),`<strong>${currency(p.amount_cents)}</strong>`,`<div class="table-actions">${editBtn('payment',p.id)}${delBtn('payments',p.id)}</div>`]);}))}</section>`;}
+function tariffs(){
+ return page('Tarife & Verträge','Brennwert, Zustandszahl, Energiepreise, Vertragslaufzeiten und Kündigungstermine verwalten.',
+    addButton('tariff','Tarif oder Vertrag erfassen'))+
+ '<section class="card">'+table(['Versorger','Kostenart','Gültigkeit / Laufzeit','Arbeitspreis','Gasfaktoren','Kündigung','Aktion'],
+ (db.tariffs||[]).map(t=>tr([
+   '<b>'+E(t.provider)+'</b>',E(kinds[t.kind]||t.kind),
+   'Ab '+dateDE(t.valid_from)+(t.contract_start?'<div class="tiny muted">Start '+dateDE(t.contract_start)+'</div>':'')+
+   (t.contract_end?'<div class="tiny muted">Ende '+dateDE(t.contract_end)+'</div>':''),
+   number(t.unit_price_eur)+' €/kWh'+(t.kind==='gas'?'':' bzw. Einheit')+'<div class="tiny muted">'+number(t.base_month_eur)+' € Grundpreis/Monat</div>',
+   t.kind==='gas'?(t.gas_calorific_kwh_m3?number(t.gas_calorific_kwh_m3)+' kWh/m³ × '+number(t.gas_condition_factor):'Nicht hinterlegt'):'–',
+   t.cancellation_deadline?(dateDE(t.cancellation_deadline)+(t.cancellation_done?' ✓ Erledigt':'')+'<div class="tiny muted">Erinnerung '+Number(t.reminder_days??42)+' Tage vorher</div>'):'–',
+   '<div class="table-actions">'+editBtn('tariff',t.id)+delBtn('tariffs',t.id)+'</div>'
+ ])))+'</section>'+
+ '<div class="notice info" style="margin-top:18px">Gas: m³ am Zähler ablesen; Brennwert und Zustandszahl hier eintragen. Bei der Gasrechnung wird der Tarif gewählt, die Faktoren bleiben in der Rechnung historisch gespeichert. Die Gesamtkosten ergeben sich weiterhin aus dem tatsächlichen Rechnungsbetrag.</div>'+
+ '<section class="card" style="margin-top:18px"><div class="card-head"><h2>Vertragsvergleich</h2></div><p class="muted">CHECK24 bietet einen externen Strom- und Gasvergleich. Eine automatische Tarifpreis-API ist derzeit nicht angebunden.</p><a href="https://www.check24.de/strom-gas/" target="_blank" rel="noopener noreferrer" class="btn secondary">Strom und Gas bei CHECK24 vergleichen ↗</a></section>';
+}
+function invoices(){return page('Rechnungen & Belege','Lieferantenrechnungen mit Abrechnungszeitraum, Umlage und optionaler PDF-Anlage.',addButton('invoice','Rechnung erfassen'))+`<section class="card">${table(['Rechnungssteller','Kategorie','Zeitraum','Umlage','Betrag','Beleg','Aktion'],db.invoices.map(i=>tr([`<b>${E(i.provider)}</b><div class="tiny muted">${E(i.invoice_number)}</div>`,E(kinds[i.kind]||i.kind),`${dateDE(i.period_start)}<br>${dateDE(i.period_end)}`,E(i.household_id?'Direkt':methods[i.distribution]||i.distribution),`<strong>${currency(i.amount_cents)}</strong>${i.kind==='gas'&&i.gas_calorific_kwh_m3?'<div class="tiny muted">Brennwert '+number(i.gas_calorific_kwh_m3)+' × '+number(i.gas_condition_factor)+'</div>':''}`,i.attachment_file?`<a href="/api/attachment?id=${i.id}" class="inline-link">PDF ↧</a>`:'–',`<div class="table-actions">${editBtn('invoice',i.id)}${delBtn('invoices',i.id)}</div>`])),empty('▤','Noch keine Rechnungen','Für die Abrechnung zunächst Rechnungen erfassen.',addButton('invoice','Rechnung erfassen')))}</section><div class="notice info" style="margin-top:18px">Eine Rechnung zählt zu dem Jahr, in dem ihr Abrechnungszeitraum endet. Für eine rechtlich verbindliche Heizkostenabrechnung muss die Heizkostenverordnung gesondert geprüft werden.</div>`;}
+function payments(){
+ const schedules=(db.standing_orders||[]).slice().sort((a,b)=>b.valid_from.localeCompare(a.valid_from));
+ const scheduleRows=schedules.map(o=>{
+  const h=db.households.find(x=>x.id===o.household_id);
+  return tr(['<strong>'+E(h?.name||'?')+'</strong>',currency(o.amount_cents),String(o.day_of_month)+'. des Monats',
+    dateDE(o.valid_from)+(o.valid_until?' bis '+dateDE(o.valid_until):' · laufend'),
+    E(o.note||''),delBtn('standing_orders',o.id)]);
+ });
+ const manual=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
+ const expected=report.standing_order_entries||[];
+ const autoRows=expected.slice(-18).reverse().map(x=>{
+  const h=db.households.find(z=>z.id===x.household_id);
+  return tr([dateDE(x.date),E(h?.name||'?'),'<span class="pill">Dauerauftrag (planmäßig)</span>',currency(x.amount_cents)]);
+ });
+ return page('Abschläge & Daueraufträge','Regelmäßige Abschläge mit historisierten Betragsänderungen und einzelne Zahlungen.',
+    addButton('standing_order','Dauerauftrag / Erhöhung')+addButton('payment','Einzelzahlung buchen'))+
+ '<section class="card"><div class="card-head"><h2>Monatliche Daueraufträge</h2></div>'+
+ table(['Haushalt','Monatsbetrag','Abbuchung','Gültig ab / bis','Bemerkung','Aktion'],scheduleRows,
+   empty('◎','Noch kein Dauerauftrag','Legt einen monatlichen Abschlag an.'))+
+ '<p class="muted tiny" style="margin-top:16px">Bei einer Erhöhung einen neuen Dauerauftrag mit späterem Startmonat anlegen. Die vorherige Version endet automatisch am Vormonatsende. Ältere Monate bleiben unverändert.</p></section>'+
+ '<div class="two-col" style="margin-top:18px"><section class="card"><h2>Planmäßige Daueraufträge '+year+'</h2>'+
+ table(['Fällig','Haushalt','Typ','Betrag'],autoRows,empty('◎','Keine fälligen Monatsabschläge','Nur bis zum aktuellen Datum fällige Zahlungen werden berücksichtigt.'))+
+ '<p class="muted tiny">Planmäßig verbucht, ohne Bankbestätigung. Bei einer manuellen Zahlung im selben Monat wird der Dauerauftrag nicht zusätzlich berücksichtigt.</p></section>'+
+ '<section class="card"><h2>Einzelzahlungen</h2>'+
+ table(['Datum','Haushalt','Bemerkung','Betrag','Aktion'],manual.map(p=>{const h=db.households.find(x=>x.id===p.household_id);return tr([
+ dateDE(p.date),'<strong>'+E(h?.name||'?')+'</strong>',E(p.note||'Abschlag'),currency(p.amount_cents),
+ '<div class="table-actions">'+editBtn('payment',p.id)+delBtn('payments',p.id)+'</div>']);}))+'</section></div>';
+}
 function reportPage(){
  const hRows=report.households.map(h=>tr([`<strong>${E(h.name)}</strong>`,`${number(h.area_m2)} m²`,number(h.occupants),currency(h.cost_cents),currency(h.paid_cents),badge((h.balance_cents>=0?'Nachzahlung ':'Guthaben ')+currency(Math.abs(h.balance_cents)),h.balance_cents>0?'warn':'') ,`<a class="inline-link" href="/api/report.pdf?year=${year}&household=${h.id}">PDF ↧</a>` ]));
  return page('Jahresabrechnung','Automatische, nachvollziehbare Kostenaufteilung je Haushalt.',`<a href="/api/report.pdf?year=${year}" class="btn primary">↓ PDF exportieren</a><a href="/api/report.xlsx?year=${year}" class="btn secondary">↓ Excel</a><a href="/api/report.csv?year=${year}" class="btn secondary">↓ CSV</a><button class="btn secondary" data-print>⎙ Drucken</button>`)+
   (report.warnings.length?`<div class="notice error"><b>Achtung – Abrechnung unvollständig.</b><ul>${report.warnings.map(w=>`<li>${E(w)}</li>`).join('')}</ul></div>`:'')+
+  (report.assumptions?.length?`<div class="notice info">${report.assumptions.map(E).join(' ')}</div>`:'')+
   `<section class="card report-print"><div class="report-header"><div class="eyebrow">${E(houseTitle)}</div><h2>Abrechnung ${year}</h2><span class="muted">Stand: ${new Date().toLocaleDateString('de-DE')}</span></div>
    <div class="report-total"><div><small class="muted">Abzurechnende Gesamtkosten</small><br><b>${currency(report.totals.cost_cents)}</b></div><div><small class="muted">Geleistete Vorauszahlungen</small><br><b>${currency(report.totals.paid_cents)}</b></div><div><small class="muted">Offener Saldo</small><br><b>${currency(report.totals.balance_cents)}</b></div></div>
    <h2>Verteilung nach Haushalt</h2>${table(['Haushalt','Fläche','Personen','Kosten','Vorauszahlung','Ergebnis','PDF'],hRows,empty('◎','Noch keine Daten','Erfasst erst Haushalte und Rechnungen.'))}
    <h2 style="margin-top:32px">Kostenarten</h2>${table(['Kostenart','Gesamtkosten'],Object.entries(report.kinds).map(([k,v])=>tr([E(kinds[k]||k),`<b>${currency(v)}</b>`])))}
-   <h2 style="margin-top:32px">Verteilte Rechnungen</h2>${table(['Lieferant','Zeitraum','Kostenart','Betrag'],report.invoices.map(i=>tr([E(i.provider),`${dateDE(i.period_start)} – ${dateDE(i.period_end)}`,E(kinds[i.kind]||i.kind),currency(i.amount_cents)])))}
+   <h2 style="margin-top:32px">Verteilte Rechnungen</h2>${table(['Lieferant','Zeitraum','Kostenart','Betrag'],report.invoices.map(i=>tr([E(i.provider),`${dateDE(i.period_start)} – ${dateDE(i.period_end)}`,E(kinds[i.kind]||i.kind)+(i.gas?'<div class="tiny muted">'+number(i.gas.total_volume_m3)+' m³ → '+number(i.gas.total_energy_kwh)+' kWh</div>':''),currency(i.amount_cents)])))}
    <p class="report-footnote">Ein positiver Saldo bedeutet Nachzahlung, ein negativer Saldo ein Guthaben. Die Verteilung basiert auf den hinterlegten Umlageschlüsseln und den Zählerdaten. Bei fehlerhaften oder fehlenden Werten wird die entsprechende Rechnung ausdrücklich nicht einberechnet. Jahreszuordnung nach Rechnungs-Periodenende. Dies ist eine private Rechenhilfe, keine geprüfte rechtsverbindliche Nebenkostenabrechnung.</p>
   </section>`;
 }
@@ -185,21 +250,41 @@ function modalFields(type,preset={}) {
  case 'household':return field('name','Bezeichnung / Familie')+field('area_m2','Wohnfläche (m²)','number',{step:0.01})+field('occupants','Personenanzahl','number',{min:0,step:1,value:1})+field('active','Status','select',{options:[{value:'1',label:'Aktiv'},{value:'0',label:'Inaktiv'}],empty:false,value:'1'});
  case 'meter':return field('code','Zählernummer')+field('name','Bezeichnung')+field('kind','Energie- / Kostenart','select',{options:KindsOptions})+field('unit','Einheit','select',{options:choices(['kWh','m³','MWh','l','Stück'])})+field('role','Zählertyp','select',{options:[{value:'main',label:'Hauptzähler'},{value:'sub',label:'Unterzähler'}],empty:false,value:'sub'})+field('household_id','Zugeordneter Haushalt','select',{options:hhOpts()})+field('multiplier','Zählerfaktor','number',{value:1,min:0,step:0.001,help:'Normalerweise 1; ggf. Messwandlerfaktor.'})+field('active','Status','select',{options:[{value:'1',label:'Aktiv'},{value:'0',label:'Inaktiv'}],empty:false,value:'1'});
  case 'reading':return field('meter_id','Zähler','select',{options:meterOpts(),value:preset.meter_id||''})+field('date','Ablesedatum','date',{value:today})+field('value','Zählerstand','number',{step:0.001})+field('note','Bemerkung','textarea',{required:false,wide:true});
- case 'tariff':return field('provider','Versorger')+field('kind','Kostenart','select',{options:KindsOptions})+field('valid_from','Gültig ab','date',{value:ym})+field('unit_price_eur','Arbeitspreis pro Einheit (€)','number',{step:0.0001})+field('base_month_eur','Grundpreis pro Monat (€)','number',{step:0.01})+field('note','Bemerkung','textarea',{required:false,wide:true});
- case 'invoice':return field('provider','Rechnungssteller')+field('invoice_number','Rechnungsnummer','text',{required:false})+field('kind','Kostenart','select',{options:KindsOptions})+field('amount_eur','Gesamtbetrag der Rechnung (€)','number',{step:0.01})+field('period_start','Leistungszeitraum von','date',{value:ym})+field('period_end','Leistungszeitraum bis','date',{value:ye})+
+ case 'tariff':return field('provider','Versorger')+field('kind','Kostenart','select',{options:KindsOptions})+
+   field('valid_from','Tarif gültig ab','date',{value:ym})+
+   field('unit_price_eur','Arbeitspreis pro kWh bzw. Einheit (€)','number',{step:0.0001})+
+   field('base_month_eur','Grundpreis pro Monat (€)','number',{step:0.01})+
+   '<div class="field wide gas-hint hidden" id="gasTariffHint"><b>Gasumrechnung</b> – Brennwert und Zustandszahl aus der Gasrechnung eingeben. Zählerstände bleiben in m³.</div>'+
+   field('gas_calorific_kwh_m3','Brennwert (kWh/m³)','number',{required:false,step:0.0001,min:1})+
+   field('gas_condition_factor','Zustandszahl','number',{required:false,step:0.000001,min:0.1})+
+   field('contract_start','Vertragsbeginn (optional)','date',{required:false})+
+   field('contract_end','Vertragsende (optional)','date',{required:false})+
+   field('cancellation_deadline','Spätester Kündigungstermin (optional)','date',{required:false,help:'Bitte Datum aus den Vertragsbedingungen eintragen; HOM berechnet keine Rechtsfristen.'})+
+   field('reminder_days','Erinnerung ab (Tage vorher)','number',{value:42,min:0,step:1})+
+   field('cancellation_done','Kündigung','select',{options:[{value:'0',label:'Offen'},{value:'1',label:'Erledigt'}],empty:false,value:'0'})+
+   field('note','Bemerkung','textarea',{required:false,wide:true});
+ case 'invoice':return field('provider','Rechnungssteller')+field('invoice_number','Rechnungsnummer','text',{required:false})+field('kind','Kostenart','select',{options:KindsOptions})+
+   field('gas_tariff_id','Gastarif für Brennwert und Zustandszahl','select',{required:false,options:(db.tariffs||[]).filter(t=>t.kind==='gas'&&t.gas_calorific_kwh_m3&&t.gas_condition_factor).map(t=>({value:t.id,label:t.provider+' · ab '+dateDE(t.valid_from)+' · '+number(t.gas_calorific_kwh_m3)+' kWh/m³ × '+number(t.gas_condition_factor)})),help:'Bei Gasabrechnung nach Zählerständen erforderlich. Faktoren werden in der Rechnung unveränderlich übernommen.'})+field('amount_eur','Gesamtbetrag der Rechnung (€)','number',{step:0.01})+field('period_start','Leistungszeitraum von','date',{value:ym})+field('period_end','Leistungszeitraum bis','date',{value:ye})+
    field('distribution','Umlageschlüssel','select',{options:Object.entries(methods).map(([value,label])=>({value,label})),empty:false,value:'area'})+
    field('household_id','Direkt einem Haushalt zuweisen (optional)','select',{options:hhOpts(),required:false})+
    field('common_key','Gemeinschaftsverbrauch nach','select',{options:[{value:'area',label:'Wohnfläche'},{value:'persons',label:'Personen'},{value:'equal',label:'Gleiche Teile'}],empty:false,value:'area',help:'Relevant bei Haupt- und Unterzählern.'})+
    `<div class="field wide hidden" id="customWeights"><label>Individuelle Gewichte pro Haushalt</label>${db.households.filter(h=>h.active).map(h=>`<div class="split-line" style="gap:10px;margin:5px 0"><span>${E(h.name)}</span><input style="max-width:110px" type="number" name="weight_${h.id}" value="1" min="0" step="any"></div>`).join('')}</div>`+
    field('attachment','PDF-Rechnung (optional, max. 5 MB)','file',{required:false,wide:true})+field('note','Bemerkung','textarea',{required:false,wide:true});
- case 'payment':return field('household_id','Haushalt','select',{options:hhOpts()})+field('date','Zahlungsdatum','date',{value:today})+field('amount_eur','Gezahlter Betrag (€)','number',{step:0.01})+field('note','Bemerkung','textarea',{value:'Monatlicher Abschlag',required:false,wide:true});
+ case 'payment':return field('household_id','Haushalt','select',{options:hhOpts()})+field('date','Zahlungsdatum','date',{value:today})+field('amount_eur','Gezahlter Betrag (€)','number',{step:0.01})+
+ field('note','Bemerkung','textarea',{value:'Einzelzahlung',required:false,wide:true,help:'Eine manuell erfasste Zahlung ersetzt den planmäßigen Dauerauftrag im selben Monat.'});
+ case 'standing_order':return field('household_id','Haushalt','select',{options:hhOpts()})+
+   field('amount_eur','Monatlicher Abschlag (€)','number',{step:0.01,min:0.01})+
+   field('day_of_month','Tag der Abbuchung (1–31)','number',{value:1,min:1,step:1,help:'Bei Monaten mit weniger Tagen gilt der letzte Kalendertag.'})+
+   field('valid_from','Gültig ab (1. des Monats)','date',{value:today.slice(0,7)+'-01',help:'Bei einer Erhöhung ab neuem Monat eingeben. Der alte Betrag endet automatisch im Vormonat.'})+
+   field('valid_until','Gültig bis (optional)','date',{required:false})+
+   field('note','Bemerkung','textarea',{required:false,wide:true});
  }
  return '';
 }
 function openModal(type,preset={},editId=null){
- if(['reading','meter','payment','invoice'].includes(type)&&db.households.length===0){notify('Bitte zuerst einen Haushalt anlegen.',true);return;}
+ if(['reading','meter','payment','invoice','standing_order'].includes(type)&&db.households.length===0){notify('Bitte zuerst einen Haushalt anlegen.',true);return;}
  if(type==='reading'&&!db.meters.length){notify('Bitte zuerst einen Zähler anlegen.',true);return;}
- modalType=type;editingID=editId;$('dialogTitle').textContent={household:'Haushalt anlegen',meter:'Zähler anlegen',reading:'Zählerstand erfassen',tariff:'Tarif erfassen',invoice:'Rechnung erfassen',payment:'Abschlag erfassen'}[type];$('formFields').className='form-grid';$('formFields').innerHTML=modalFields(type,preset);
+ modalType=type;editingID=editId;$('dialogTitle').textContent={household:'Haushalt anlegen',meter:'Zähler anlegen',reading:'Zählerstand erfassen',tariff:'Tarif erfassen',invoice:'Rechnung erfassen',payment:'Abschlag erfassen',standing_order:'Dauerauftrag anlegen / Betrag erhöhen'}[type];$('formFields').className='form-grid';$('formFields').innerHTML=modalFields(type,preset);
  if(editId){
   $('dialogTitle').textContent='Eintrag bearbeiten';
   const fields=$('entryForm').elements;
@@ -215,8 +300,37 @@ function openModal(type,preset={},editId=null){
  }
  $('formDialog').showModal();updateModalFields();
 }
-function updateModalFields(){const f=$('entryForm');if(modalType==='meter'){const main=f.elements.role?.value==='main';const h=f.querySelector('[data-field="household_id"]');if(h){h.classList.toggle('hidden',main);f.elements.household_id.required=!main;}}
- if(modalType==='invoice'){const isMeter=f.elements.distribution?.value==='meter',custom=f.elements.distribution?.value==='custom';const ck=f.querySelector('[data-field="common_key"]');if(ck)ck.classList.toggle('hidden',!isMeter);$('customWeights')?.classList.toggle('hidden',!custom);}}
+function updateModalFields(){
+ const f=$('entryForm'),category=f.elements.kind?.value;
+ if(modalType==='meter'){
+   const main=f.elements.role?.value==='main',h=f.querySelector('[data-field="household_id"]');
+   if(h){h.classList.toggle('hidden',main);f.elements.household_id.required=!main;}
+   const unit=f.elements.unit;
+   if(unit){
+     if(category==='gas')unit.value='m³';
+     for(const choice of unit.options)choice.disabled=category==='gas'&&choice.value!=='m³';
+   }
+ }
+ if(modalType==='tariff'){
+   const gas=category==='gas';
+   $('gasTariffHint')?.classList.toggle('hidden',!gas);
+   for(const key of ['gas_calorific_kwh_m3','gas_condition_factor']){
+     const fieldNode=f.querySelector('[data-field="'+key+'"]');
+     fieldNode?.classList.toggle('hidden',!gas);
+     f.elements[key].required=gas;
+   }
+ }
+ if(modalType==='invoice'){
+   const isMeter=f.elements.distribution?.value==='meter',custom=f.elements.distribution?.value==='custom';
+   const ck=f.querySelector('[data-field="common_key"]');
+   if(ck)ck.classList.toggle('hidden',!isMeter);
+   $('customWeights')?.classList.toggle('hidden',!custom);
+   const gas=category==='gas',gasNode=f.querySelector('[data-field="gas_tariff_id"]');
+   gasNode?.classList.toggle('hidden',!gas);
+   f.elements.gas_tariff_id.required=gas&&isMeter&&!f.elements.household_id?.value;
+   if(!gas)f.elements.gas_tariff_id.value='';
+ }
+}
 async function formSubmit(evt){evt.preventDefault();let data={};const form=$('entryForm');const fd=new FormData(form);for(const [k,v] of fd.entries())if(k!=='attachment'&&!k.startsWith('weight_'))data[k]=v;
  if(modalType==='meter'&&data.role==='main')data.household_id=null;
  if(modalType==='invoice'){
@@ -225,10 +339,10 @@ async function formSubmit(evt){evt.preventDefault();let data={};const form=$('en
      const buffer=await file.arrayBuffer();const bytes=new Uint8Array(buffer);let binary='';for(let offset=0;offset<bytes.length;offset+=8192)binary+=String.fromCharCode(...bytes.slice(offset,offset+8192));data.attachment={name:file.name,base64:btoa(binary)};
    }
  }
- const route={household:'households',meter:'meters',reading:'readings',tariff:'tariffs',invoice:'invoices',payment:'payments'}[modalType];
+ const route={household:'households',meter:'meters',reading:'readings',tariff:'tariffs',invoice:'invoices',payment:'payments',standing_order:'standing-orders'}[modalType];
  try{await api(`/api/${route}${editingID?'/'+editingID:''}`,{method:editingID?'PATCH':'POST',body:JSON.stringify(data)});$('formDialog').close();notify('Eintrag erfolgreich gespeichert.');await refresh();}catch(e){notify(e.message,true);}
 }
-async function removeEntry(table,id){const name={households:'Haushalt',meters:'Zähler',readings:'Ablesung',tariffs:'Tarif',invoices:'Rechnung',payments:'Zahlung'}[table];if(!confirm(`${name} #${id} wirklich löschen?`))return;
+async function removeEntry(table,id){const name={households:'Haushalt',meters:'Zähler',readings:'Ablesung',tariffs:'Tarif',invoices:'Rechnung',payments:'Zahlung',standing_orders:'Dauerauftrag'}[table];if(!confirm(table==='standing_orders'?'Dauerauftrag und damit alle bisher daraus abgeleiteten Monatsabschläge wirklich entfernen? Alte Abrechnungen können sich ändern.':`${name} #${id} wirklich löschen?`))return;
  try{await api(`/api/${table}/${id}`,{method:'DELETE'});notify(`${name} gelöscht.`);await refresh();}catch(e){notify(e.message,true);}}
 async function runForecast(){if(view!=='forecast')return;
  const price=$('priceGrowth')?.value||3,cons=$('consumptionGrowth')?.value||0,horizon=Number($('forecastHorizon')?.value||5);
