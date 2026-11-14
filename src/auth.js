@@ -94,7 +94,7 @@ function validName(v,label,max=80){
   return s;
 }
 function validPassword(v){
-  if(typeof v!=='string'||v.length<12||v.length>128)fail('Passwort muss 12 bis 128 Zeichen lang sein.');
+  if(typeof v!=='string'||v.length<10||v.length>128)fail('Passwort muss 10 bis 128 Zeichen lang sein.');
   return v;
 }
 function listUsers(db){

@@ -89,12 +89,12 @@ function tariffs(){
    number(t.unit_price_eur)+' €/kWh'+(t.kind==='gas'?'':' bzw. Einheit')+'<div class="tiny muted">'+number(t.base_month_eur)+' € Grundpreis/Monat</div>',
    t.kind==='gas'?(t.gas_calorific_kwh_m3?number(t.gas_calorific_kwh_m3)+' kWh/m³ × '+number(t.gas_condition_factor):'Nicht hinterlegt'):'–',
    t.cancellation_deadline?(dateDE(t.cancellation_deadline)+(t.cancellation_done?' ✓ Erledigt':'')+'<div class="tiny muted">Erinnerung '+Number(t.reminder_days??42)+' Tage vorher</div>'):'–',
-   '<div class="table-actions">'+editBtn('tariff',t.id)+delBtn('tariffs',t.id)+'</div>'
+   '<div class="table-actions">'+paperlessPreviewLink(t.paperless_document_id)+editBtn('tariff',t.id)+delBtn('tariffs',t.id)+'</div>'
  ])))+'</section>'+
  '<div class="notice info" style="margin-top:18px">Gas: m³ am Zähler ablesen; Brennwert und Zustandszahl hier eintragen. Bei der Gasrechnung wird der Tarif gewählt, die Faktoren bleiben in der Rechnung historisch gespeichert. Die Gesamtkosten ergeben sich weiterhin aus dem tatsächlichen Rechnungsbetrag.</div>'+
  '<section class="card" style="margin-top:18px"><div class="card-head"><h2>Vertragsvergleich</h2></div><p class="muted">CHECK24 bietet einen externen Strom- und Gasvergleich. Eine automatische Tarifpreis-API ist derzeit nicht angebunden.</p><a href="https://www.check24.de/strom-gas/" target="_blank" rel="noopener noreferrer" class="btn secondary">Strom und Gas bei CHECK24 vergleichen ↗</a></section>';
 }
-function invoices(){return page('Rechnungen & Belege','Lieferantenrechnungen mit Abrechnungszeitraum, Umlage und optionaler PDF-Anlage.',addButton('invoice','Rechnung erfassen'))+`<section class="card">${table(['Rechnungssteller','Kategorie','Zeitraum','Umlage','Betrag','Beleg','Aktion'],db.invoices.map(i=>tr([`<b>${E(i.provider)}</b><div class="tiny muted">${E(i.invoice_number)}</div>`,E(kinds[i.kind]||i.kind),`${dateDE(i.period_start)}<br>${dateDE(i.period_end)}`,E(i.household_id?'Direkt':methods[i.distribution]||i.distribution),`<strong>${currency(i.amount_cents)}</strong>${i.kind==='gas'&&i.gas_calorific_kwh_m3?'<div class="tiny muted">Brennwert '+number(i.gas_calorific_kwh_m3)+' × '+number(i.gas_condition_factor)+'</div>':''}`,i.attachment_file?`<a href="/api/attachment?id=${i.id}" class="inline-link">PDF ↧</a>`:'–',`<div class="table-actions">${editBtn('invoice',i.id)}${delBtn('invoices',i.id)}</div>`])),empty('▤','Noch keine Rechnungen','Für die Abrechnung zunächst Rechnungen erfassen.',addButton('invoice','Rechnung erfassen')))}</section><div class="notice info" style="margin-top:18px">Eine Rechnung zählt zu dem Jahr, in dem ihr Abrechnungszeitraum endet. Für eine rechtlich verbindliche Heizkostenabrechnung muss die Heizkostenverordnung gesondert geprüft werden.</div>`;}
+function invoices(){return page('Rechnungen & Belege','Lieferantenrechnungen mit Abrechnungszeitraum, Umlage und optionaler PDF-Anlage.',addButton('invoice','Rechnung erfassen'))+`<section class="card">${table(['Rechnungssteller','Kategorie','Zeitraum','Umlage','Betrag','Beleg','Aktion'],db.invoices.map(i=>tr([`<b>${E(i.provider)}</b><div class="tiny muted">${E(i.invoice_number)}</div>`,E(kinds[i.kind]||i.kind),`${dateDE(i.period_start)}<br>${dateDE(i.period_end)}`,E(i.household_id?'Direkt':methods[i.distribution]||i.distribution),`<strong>${currency(i.amount_cents)}</strong>${i.kind==='gas'&&i.gas_calorific_kwh_m3?'<div class="tiny muted">Brennwert '+number(i.gas_calorific_kwh_m3)+' × '+number(i.gas_condition_factor)+'</div>':''}`,(i.attachment_file?`<a href="/api/attachment?id=${i.id}" class="inline-link">PDF ↧</a>`:'')+(i.paperless_document_id?paperlessPreviewLink(i.paperless_document_id):'')||'–',`<div class="table-actions">${editBtn('invoice',i.id)}${delBtn('invoices',i.id)}</div>`])),empty('▤','Noch keine Rechnungen','Für die Abrechnung zunächst Rechnungen erfassen.',addButton('invoice','Rechnung erfassen')))}</section><div class="notice info" style="margin-top:18px">Eine Rechnung zählt zu dem Jahr, in dem ihr Abrechnungszeitraum endet. Für eine rechtlich verbindliche Heizkostenabrechnung muss die Heizkostenverordnung gesondert geprüft werden.</div>`;}
 function payments(){
  const schedules=(db.standing_orders||[]).slice().sort((a,b)=>b.valid_from.localeCompare(a.valid_from));
  const scheduleRows=schedules.map(o=>{
@@ -155,7 +155,7 @@ function usersPage(){
   '<div class="field"><label for="newDisplayName">Anzeigename</label><input id="newDisplayName" name="display_name" maxlength="80" required></div>'+
   '<div class="field"><label for="newUserRole">Berechtigung</label><select id="newUserRole" name="role"><option value="user">Mitglied (alle Hausdaten bearbeiten)</option><option value="admin">Administrator (zusätzlich Nutzer & Einstellungen)</option></select></div>'+
   '<div class="field"><label for="newUserActive">Status</label><select id="newUserActive" name="active"><option value="true">Aktiv</option><option value="false">Deaktiviert</option></select></div>'+
-  '<div class="field"><label for="newUserPassword">Passwort</label><input id="newUserPassword" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><div class="help">Mindestens 12 Zeichen. Beim Bearbeiten leer lassen, wenn das Passwort unverändert bleiben soll.</div></div>'+
+  '<div class="field"><label for="newUserPassword">Passwort</label><input id="newUserPassword" name="password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required><div class="help">Mindestens 10 Zeichen. Beim Bearbeiten leer lassen, wenn das Passwort unverändert bleiben soll.</div></div>'+
   '<div class="admin-actions"><button class="btn primary" type="submit" id="saveUserButton">Benutzer anlegen</button> <button class="btn secondary" type="button" data-user-new>Zurücksetzen</button></div></form></section>'+
   '<section class="card"><div class="card-head"><h2>Benutzerkonten</h2>'+badge(String(users.length)+' Konten')+'</div>'+
   table(['Person','Rolle','Status','Aktion'],rows,empty('♙','Noch keine weiteren Benutzer','Erstellt links einen Zugang.'))+
@@ -169,7 +169,14 @@ function settingsPage(){
   '<div class="field"><label for="houseTitleField">Titel Eures Hauses</label>'+
   '<input id="houseTitleField" name="house_title" minlength="2" maxlength="100" required value="'+E(houseTitle)+'">'+
   '<div class="help">Beispielsweise „Villa Kunterbunt“, „Haus am Garten“ oder eine eigene Bezeichnung.</div></div>'+
-  '<button class="btn primary" type="submit">Haustitel speichern</button></form></section>';
+  '<button class="btn primary" type="submit">Haustitel speichern</button></form></section>'+
+  '<section class="card setting-card" style="margin-top:20px"><h2>Dokumentenarchiv – Paperless-ngx</h2>'+
+  '<p class="muted">Technischer Lesebenutzer <b>hom-archiv</b>. Nur Dokumente mit HOM-Freigabe und erlaubter Hauskostenkategorie; Token ausschließlich auf der NAS in der Docker-Umgebung. Papermerge ist nicht verbunden.</p>'+
+  '<button type="button" class="btn secondary" data-paperless-status>Verbindung prüfen</button><p id="paperlessStatus" class="muted tiny"></p>'+
+  '<form id="paperlessPrivacyForm" class="admin-form"><div class="field"><label for="privateDocumentId">Private Dokument-ID als Negativtest (z. B. Lohnabrechnung)</label>'+
+  '<input id="privateDocumentId" name="private_document_id" type="number" min="1" step="1" required>'+
+  '<div class="help">Bei korrekten Paperless-Rechten wird der Zugriff mit dem Dienstkonto verweigert. Ohne bestandenen Test nicht produktiv nutzen.</div></div>'+
+  '<button class="btn secondary" type="submit">Privatzugriff testen</button><p id="paperlessPrivacyResult" class="muted tiny" role="status"></p></form></section>';
 }
 function profilePage(){
   return page('Mein Konto','Hier könnt Ihr Euer eigenes Passwort ändern.')+
@@ -177,7 +184,7 @@ function profilePage(){
   '<p class="muted">Benutzer: '+E(account?.username||'')+' · '+(isAdmin()?'Administrator':'Mitglied')+'</p>'+
   '<form id="changePasswordForm" class="admin-form">'+
   '<div class="field"><label for="oldPassword">Bisheriges Passwort</label><input id="oldPassword" name="current_password" type="password" autocomplete="current-password" required></div>'+
-  '<div class="field"><label for="newPassword">Neues Passwort</label><input id="newPassword" name="new_password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></div>'+
+  '<div class="field"><label for="newPassword">Neues Passwort</label><input id="newPassword" name="new_password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></div>'+
   '<button class="btn primary" type="submit">Passwort ändern</button></form></section>';
 }
 function editUser(id){
@@ -211,7 +218,7 @@ async function saveManagedUser(form){
   const data={username:fd.get('username'),display_name:fd.get('display_name'),role:fd.get('role'),active:fd.get('active')==='true'};
   const password=fd.get('password');
   if(password)data.password=password;
-  if(!editId&&!password)throw new Error('Bitte ein Startpasswort mit mindestens 12 Zeichen eingeben.');
+  if(!editId&&!password)throw new Error('Bitte ein Startpasswort mit mindestens 10 Zeichen eingeben.');
   await api('/api/users'+(editId?'/'+editId:''),{method:editId?'PATCH':'POST',body:JSON.stringify(data)});
   notify(editId?'Benutzer aktualisiert.':'Benutzer erstellt.');
   await refresh();
@@ -244,6 +251,59 @@ function field(name,label,type='text',opts={}){
  else content=`<input name="${name}" id="fld-${name}" type="${type}" ${required} ${type==='number'?`min="${opts.min??0}" step="${opts.step??'any'}"`:''} ${type==='file'?'accept="application/pdf,.pdf"':''} ${value&&type!=='file'?`value="${E(value)}"`:''}>`;
  return `<div class="field ${opts.wide?'wide':''}" data-field="${name}"><label for="fld-${name}">${E(label)}</label>${content}${opts.help?`<div class="help">${E(opts.help)}</div>`:''}</div>`;
 }
+function paperlessField(preset={}){
+ const id=Number(preset.paperless_document_id)||'';
+ return '<div class="field wide"><label>Archivbeleg (Paperless-ngx, optional)</label>'+
+ '<input type="hidden" id="paperlessSelectedId" name="paperless_document_id" value="'+id+'">'+
+ '<div class="paperless-attach-actions"><button type="button" class="btn secondary" data-paperless-open>Dokument aus Paperless wählen</button>'+
+ '<button type="button" class="btn secondary" data-paperless-clear>Verknüpfung entfernen</button></div>'+
+ '<div class="help" id="paperlessSelectionInfo">'+(id?'Verknüpftes Archivdokument #'+id:'Noch kein Archivdokument ausgewählt')+
+ ' · Keine PDF-Kopie in HOM</div></div>';
+}
+function paperlessPreviewLink(id){
+ return id?'<a class="inline-link" href="/api/paperless/documents/'+Number(id)+'/preview" target="_blank" rel="noopener noreferrer">Archiv ↗</a>':'';
+}
+async function loadPaperlessResults(){
+ const query=$('paperlessQuery').value||'';
+ $('paperlessResults').textContent='Suche läuft …';
+ try{
+  const result=await api('/api/paperless/documents?q='+encodeURIComponent(query));
+  const docs=result.documents||[];
+  $('paperlessResults').innerHTML=docs.length?docs.map(d=>
+   '<div class="paperless-result"><div><b>'+E(d.title)+'</b><div class="tiny muted">'+E(d.created||'')+
+   ' · #'+Number(d.id)+'</div></div><div class="paperless-actions">'+paperlessPreviewLink(d.id)+
+   '<button type="button" class="btn primary small" data-paperless-choose="'+Number(d.id)+
+   '" data-title="'+E(d.title)+'">Auswählen</button></div></div>'
+  ).join(''):'<p class="muted">Keine ausdrücklich für HOM freigegebenen Dokumente gefunden.</p>';
+ }catch(error){$('paperlessResults').textContent=error.message;}
+}
+function selectPaperlessDocument(id,title){
+ const input=$('paperlessSelectedId');
+ if(!input)return;
+ input.value=String(id);
+ $('paperlessSelectionInfo').textContent='Verknüpft: '+title+' (#'+id+')';
+ $('paperlessDialog').close();
+}
+function clearPaperlessDocument(){
+ if(!$('paperlessSelectedId'))return;
+ $('paperlessSelectedId').value='';
+ $('paperlessSelectionInfo').textContent='Keine Archivverknüpfung ausgewählt';
+}
+async function verifyPaperlessPermissions(form){
+ const id=form.elements.private_document_id.value;
+ const result=await api('/api/paperless/test-private',{method:'POST',body:JSON.stringify({document_id:id})});
+ const out=$('paperlessPrivacyResult');
+ if(out)out.textContent=result.denied?
+ 'Erfolgreich: HOM-Archivbenutzer kann dieses private Dokument nicht abrufen.':
+ 'UNSICHER: Der Archivbenutzer kann dieses private Dokument abrufen! Bitte Dokumentrechte in Paperless korrigieren, bevor Ihr die Integration verwendet.';
+ if(result.denied){
+   $('paperlessStatus').textContent='Paperless ist nach bestandenem Privatzugriffstest freigegeben.';
+ }else{
+   $('paperlessStatus').textContent='UNSICHER: Archivzugriff wurde gesperrt. Dienstbenutzerrechte korrigieren.';
+   notify('Archivzugriff ist zu weit gefasst!',true);
+ }
+}
+
 function modalFields(type,preset={}) {
  const today=new Date().toISOString().slice(0,10),ym=`${year}-01-01`,ye=`${year}-12-31`;
  switch(type){
@@ -262,14 +322,15 @@ function modalFields(type,preset={}) {
    field('cancellation_deadline','Spätester Kündigungstermin (optional)','date',{required:false,help:'Bitte Datum aus den Vertragsbedingungen eintragen; HOM berechnet keine Rechtsfristen.'})+
    field('reminder_days','Erinnerung ab (Tage vorher)','number',{value:42,min:0,step:1})+
    field('cancellation_done','Kündigung','select',{options:[{value:'0',label:'Offen'},{value:'1',label:'Erledigt'}],empty:false,value:'0'})+
-   field('note','Bemerkung','textarea',{required:false,wide:true});
+   field('note','Bemerkung','textarea',{required:false,wide:true})+paperlessField(preset);
  case 'invoice':return field('provider','Rechnungssteller')+field('invoice_number','Rechnungsnummer','text',{required:false})+field('kind','Kostenart','select',{options:KindsOptions})+
    field('gas_tariff_id','Gastarif für Brennwert und Zustandszahl','select',{required:false,options:(db.tariffs||[]).filter(t=>t.kind==='gas'&&t.gas_calorific_kwh_m3&&t.gas_condition_factor).map(t=>({value:t.id,label:t.provider+' · ab '+dateDE(t.valid_from)+' · '+number(t.gas_calorific_kwh_m3)+' kWh/m³ × '+number(t.gas_condition_factor)})),help:'Bei Gasabrechnung nach Zählerständen erforderlich. Faktoren werden in der Rechnung unveränderlich übernommen.'})+field('amount_eur','Gesamtbetrag der Rechnung (€)','number',{step:0.01})+field('period_start','Leistungszeitraum von','date',{value:ym})+field('period_end','Leistungszeitraum bis','date',{value:ye})+
    field('distribution','Umlageschlüssel','select',{options:Object.entries(methods).map(([value,label])=>({value,label})),empty:false,value:'area'})+
    field('household_id','Direkt einem Haushalt zuweisen (optional)','select',{options:hhOpts(),required:false})+
    field('common_key','Gemeinschaftsverbrauch nach','select',{options:[{value:'area',label:'Wohnfläche'},{value:'persons',label:'Personen'},{value:'equal',label:'Gleiche Teile'}],empty:false,value:'area',help:'Relevant bei Haupt- und Unterzählern.'})+
    `<div class="field wide hidden" id="customWeights"><label>Individuelle Gewichte pro Haushalt</label>${db.households.filter(h=>h.active).map(h=>`<div class="split-line" style="gap:10px;margin:5px 0"><span>${E(h.name)}</span><input style="max-width:110px" type="number" name="weight_${h.id}" value="1" min="0" step="any"></div>`).join('')}</div>`+
-   field('attachment','PDF-Rechnung (optional, max. 5 MB)','file',{required:false,wide:true})+field('note','Bemerkung','textarea',{required:false,wide:true});
+   field('attachment','PDF-Rechnung (optional, max. 5 MB)','file',{required:false,wide:true})+
+   paperlessField(preset)+field('note','Bemerkung','textarea',{required:false,wide:true});
  case 'payment':return field('household_id','Haushalt','select',{options:hhOpts()})+field('date','Zahlungsdatum','date',{value:today})+field('amount_eur','Gezahlter Betrag (€)','number',{step:0.01})+
  field('note','Bemerkung','textarea',{value:'Einzelzahlung',required:false,wide:true,help:'Eine manuell erfasste Zahlung ersetzt den planmäßigen Dauerauftrag im selben Monat.'});
  case 'standing_order':return field('household_id','Haushalt','select',{options:hhOpts()})+
@@ -363,6 +424,20 @@ function register(){
  $('yearPick').addEventListener('change',e=>{year=Number(e.target.value);refresh();});
  document.addEventListener('click',async e=>{
    const target=e.target.closest('button,a');if(!target)return;
+   if(target.dataset.paperlessOpen!==undefined){
+     $('paperlessDialog').showModal();$('paperlessResults').textContent='Bitte Suchbegriff eingeben.';return;
+   }
+   if(target.dataset.paperlessChoose){
+     selectPaperlessDocument(Number(target.dataset.paperlessChoose),target.dataset.title||'Dokument');return;
+   }
+   if(target.dataset.paperlessClear!==undefined){clearPaperlessDocument();return;}
+   if(target.dataset.paperlessStatus!==undefined){
+     try{const data=await api('/api/paperless/status');
+       $('paperlessStatus').textContent=data.verified?'Paperless ist nach bestandenem Privatzugriffstest freigegeben.':
+         data.configured?'Paperless konfiguriert, aber noch GESPERRT: Zuerst den Privatzugriffstest mit einer bekannten vertraulichen Dokument-ID durchführen.':
+         'Noch nicht eingerichtet. Benötigt URL, technischen API-Token, HOM-Freigabe-Tag-ID und erlaubte Kategorien in der NAS-.env.';}
+     catch(error){notify(error.message,true);}return;
+   }
    if(target.dataset.userEdit){editUser(Number(target.dataset.userEdit));return;}
    if(target.dataset.userNew!==undefined){newUserForm();return;}
    if(target.dataset.nav){go(target.dataset.nav);return;}
@@ -380,10 +455,12 @@ function register(){
  });
  document.addEventListener('submit',async event=>{
    const form=event.target;
-   if(!['manageUserForm','houseSettingsForm','changePasswordForm'].includes(form.id))return;
+   if(!['manageUserForm','houseSettingsForm','changePasswordForm','paperlessSearchForm','paperlessPrivacyForm'].includes(form.id))return;
    event.preventDefault();
    try{
-     if(form.id==='manageUserForm')await saveManagedUser(form);
+     if(form.id==='paperlessSearchForm')await loadPaperlessResults();
+     else if(form.id==='paperlessPrivacyForm')await verifyPaperlessPermissions(form);
+     else if(form.id==='manageUserForm')await saveManagedUser(form);
      else if(form.id==='houseSettingsForm')await submitHouseSettings(form);
      else await submitOwnPassword(form);
    }catch(error){notify(error.message,true);}
@@ -391,6 +468,7 @@ function register(){
  $('formFields').addEventListener('change',updateModalFields);
  $('entryForm').addEventListener('submit',formSubmit);
  $('closeModal').addEventListener('click',()=>$('formDialog').close());$('cancelModal').addEventListener('click',()=>$('formDialog').close());
+ $('paperlessClose').addEventListener('click',()=>$('paperlessDialog').close());
  $('mobileMenu').addEventListener('click',()=>$('sidebar').classList.toggle('open'));
 }
 register();refresh();

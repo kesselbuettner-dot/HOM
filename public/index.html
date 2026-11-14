@@ -41,5 +41,20 @@
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 <dialog id="formDialog"><form id="entryForm" class="entry-form"><div class="dialog-header"><div><small>DATENVERWALTUNG</small><h2 id="dialogTitle">Neuer Eintrag</h2></div><button class="icon-btn" type="button" id="closeModal" aria-label="Schließen">×</button></div><div id="formFields" class="form-fields"></div><div class="dialog-actions"><button class="btn secondary" type="button" id="cancelModal">Abbrechen</button><button class="btn primary" type="submit">Speichern</button></div></form></dialog>
+<dialog id="paperlessDialog" class="paperless-dialog" aria-labelledby="paperlessHeading">
+  <div class="dialog-header">
+    <div><small>DOKUMENTENARCHIV</small><h2 id="paperlessHeading">Paperless-ngx: Beleg auswählen</h2></div>
+    <button id="paperlessClose" class="icon-btn" type="button" aria-label="Schließen">×</button>
+  </div>
+  <p class="muted tiny">Nur ausdrücklich für HOM freigegebene Hauskosten-Dokumente werden angezeigt.</p>
+  <form id="paperlessSearchForm" class="paperless-search-form">
+    <label for="paperlessQuery">Im Archiv suchen</label>
+    <div class="paperless-search-row">
+      <input id="paperlessQuery" type="search" autocomplete="off" maxlength="100" placeholder="Versorger, Rechnung oder Vertrag">
+      <button class="btn primary" type="submit">Suchen</button>
+    </div>
+  </form>
+  <div id="paperlessResults" aria-live="polite">Bitte suchen.</div>
+</dialog>
 </body>
 </html>

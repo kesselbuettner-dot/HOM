@@ -1,3 +1,5 @@
+**Neu: [Paperless-ngx mit streng eingeschränkten Dokumentenrechten](PAPERLESS-SICHERHEIT.md)** – getrenntes Dienstkonto, doppelte Tag-Freigabe, Belegauswahl bei Rechnungen und Verträgen. **Neue Passwörter: mindestens 10 Zeichen.**
+
 **Neu: [Gasumrechnung, Kündigungsfristen und Daueraufträge](GAS-VERTRAEGE-ABSCHLAEGE.md)**
 
 **Neu: [Benutzerverwaltung und Hauseinstellungen](BENUTZERVERWALTUNG.md)** · Adminrechte, Hausname und NAS-Update.

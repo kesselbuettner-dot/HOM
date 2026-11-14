@@ -14,6 +14,10 @@ services:
       HOM_ALLOWED_ORIGINS: "https://villa-kunterbunt.net"
       HOM_PASSWORD_HASH: ${HOM_PASSWORD_HASH:?Bitte Passwort-Hash in .env hinterlegen}
       HAUSKOSTEN_DATA: /app/data
+      HOM_PAPERLESS_URL: ${HOM_PAPERLESS_URL:-}
+      HOM_PAPERLESS_TOKEN: ${HOM_PAPERLESS_TOKEN:-}
+      HOM_PAPERLESS_RELEASE_TAG_ID: ${HOM_PAPERLESS_RELEASE_TAG_ID:-}
+      HOM_PAPERLESS_CATEGORY_TAG_IDS: ${HOM_PAPERLESS_CATEGORY_TAG_IDS:-}
     volumes:
       - hom_data:/app/data
     networks:
