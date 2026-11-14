@@ -96,6 +96,32 @@ function tariffs(){
  '<section class="card" style="margin-top:18px"><div class="card-head"><h2>Vertragsvergleich</h2></div><p class="muted">CHECK24 bietet einen externen Strom- und Gasvergleich. Eine automatische Tarifpreis-API ist derzeit nicht angebunden.</p><a href="https://www.check24.de/strom-gas/" target="_blank" rel="noopener noreferrer" class="btn secondary">Strom und Gas bei CHECK24 vergleichen ↗</a></section>';
 }
 function invoices(){return page('Rechnungen & Belege','Lieferantenrechnungen mit Abrechnungszeitraum, Umlage und optionaler PDF-Anlage.',addButton('invoice','Rechnung erfassen'))+`<section class="card">${table(['Rechnungssteller','Kategorie','Zeitraum','Umlage','Betrag','Beleg','Aktion'],db.invoices.map(i=>tr([`<b>${E(i.provider)}</b><div class="tiny muted">${E(i.invoice_number)}</div>`,E(kinds[i.kind]||i.kind),`${dateDE(i.period_start)}<br>${dateDE(i.period_end)}`,E(i.household_id?'Direkt':methods[i.distribution]||i.distribution),`<strong>${currency(i.amount_cents)}</strong>${i.kind==='gas'&&i.gas_calorific_kwh_m3?'<div class="tiny muted">Brennwert '+number(i.gas_calorific_kwh_m3)+' × '+number(i.gas_condition_factor)+'</div>':''}`,(i.attachment_file?`<a href="/api/attachment?id=${i.id}" class="inline-link">PDF ↧</a>`:'')+(i.paperless_document_id?paperlessPreviewLink(i.paperless_document_id):'')||'–',`<div class="table-actions">${editBtn('invoice',i.id)}${delBtn('invoices',i.id)}</div>`])),empty('▤','Noch keine Rechnungen','Für die Abrechnung zunächst Rechnungen erfassen.',addButton('invoice','Rechnung erfassen')))}</section><div class="notice info" style="margin-top:18px">Eine Rechnung zählt zu dem Jahr, in dem ihr Abrechnungszeitraum endet. Für eine rechtlich verbindliche Heizkostenabrechnung muss die Heizkostenverordnung gesondert geprüft werden.</div>`;}
+function providerInstallmentsSection(){
+ const schedules=(db.provider_installments||[]).slice().sort((a,b)=>b.valid_from.localeCompare(a.valid_from));
+ const rows=schedules.map(p=>{
+   const tariff=(db.tariffs||[]).find(t=>t.id===p.tariff_id);
+   return tr(['<strong>'+E(tariff?.provider||'Vertrag #'+p.tariff_id)+'</strong>'+
+       '<div class="tiny muted">'+E(kinds[tariff?.kind]||tariff?.kind||'')+'</div>',
+     currency(p.amount_cents),p.day_of_month+'. des Monats',
+     dateDE(p.valid_from)+(p.valid_until?' bis '+dateDE(p.valid_until):' · laufend'),
+     E(p.note||''),delBtn('provider_installments',p.id)]);
+ });
+ const scheduled=report.provider_installment_entries||[];
+ const nextRows=scheduled.filter(x=>x.date.slice(0,4)===String(year)).slice(-18).reverse()
+   .map(x=>tr([dateDE(x.date),E(x.provider),E(kinds[x.kind]||x.kind),currency(x.amount_cents)]));
+ return '<section class="card" style="margin-bottom:18px"><div class="card-head"><h2>Abschläge an Anbieter</h2>'+
+   addButton('provider_installment','Anbieter-Abschlag / Erhöhung')+'</div>'+
+   '<p class="muted">Beispielsweise Internetvertrag oder monatlicher Strom-Abschlag. Jeder Zahlungsplan ist einem Tarifvertrag zugeordnet.</p>'+
+   table(['Vertrag','Monatsbetrag','Abbuchung','Gültigkeit','Bemerkung','Aktion'],rows,
+     empty('◎','Noch kein Anbieter-Abschlag','Erfasst zunächst einen Vertrag und anschließend den monatlichen Betrag.'))+
+   '<p class="muted tiny" style="margin-top:12px">Bei einer Erhöhung neuen Monatsbetrag mit späterem Startmonat eintragen; bisherige Zeiträume bleiben erhalten. Dies sind geplante Abbuchungen, keine bestätigten Bankzahlungen.</p></section>'+
+   '<section class="card" style="margin-bottom:18px"><h2>Zahlungsplan an Anbieter '+year+'</h2>'+
+   '<p class="muted">Geplante Jahreszahlungen: <strong>'+currency(report.provider_installment_totals?.planned_cents||0)+
+   '</strong>. Sie werden nicht zusätzlich als Hauskosten oder als Abschläge der Haushalte gebucht.</p>'+
+   table(['Termin','Anbieter','Kostenart','Betrag'],nextRows,
+   empty('◎','Noch keine geplanten Anbieter-Zahlungen','Legt einen monatlichen Anbieter-Abschlag an.'))+
+   '</section>';
+}
 function payments(){
  const schedules=(db.standing_orders||[]).slice().sort((a,b)=>b.valid_from.localeCompare(a.valid_from));
  const scheduleRows=schedules.map(o=>{
@@ -110,10 +136,10 @@ function payments(){
   const h=db.households.find(z=>z.id===x.household_id);
   return tr([dateDE(x.date),E(h?.name||'?'),'<span class="pill">Dauerauftrag (planmäßig)</span>',currency(x.amount_cents)]);
  });
- return page('Abschläge & Daueraufträge','Regelmäßige Abschläge mit historisierten Betragsänderungen und einzelne Zahlungen.',
+ return page('Abschläge & Daueraufträge','Abschläge an Versorger getrennt von Zahlungen der Haushalte erfassen.',
     addButton('standing_order','Dauerauftrag / Erhöhung')+addButton('payment','Einzelzahlung buchen'))+
- '<section class="card"><div class="card-head"><h2>Monatliche Daueraufträge</h2></div>'+
- table(['Haushalt','Monatsbetrag','Abbuchung','Gültig ab / bis','Bemerkung','Aktion'],scheduleRows,
+ providerInstallmentsSection()+'<section class="card"><div class="card-head"><h2>Monatliche Daueraufträge der Haushalte</h2></div>'+
+ '<p class="muted tiny">Diese Zahlungen gehen von Haushalten an die Hauskostenkasse und bleiben unabhängig von den Anbieter-Abschlägen.</p>'+table(['Haushalt','Monatsbetrag','Abbuchung','Gültig ab / bis','Bemerkung','Aktion'],scheduleRows,
    empty('◎','Noch kein Dauerauftrag','Legt einen monatlichen Abschlag an.'))+
  '<p class="muted tiny" style="margin-top:16px">Bei einer Erhöhung einen neuen Dauerauftrag mit späterem Startmonat anlegen. Die vorherige Version endet automatisch am Vormonatsende. Ältere Monate bleiben unverändert.</p></section>'+
  '<div class="two-col" style="margin-top:18px"><section class="card"><h2>Planmäßige Daueraufträge '+year+'</h2>'+
