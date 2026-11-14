@@ -5,11 +5,11 @@ const currency=c=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'
 const number=n=>new Intl.NumberFormat('de-DE',{maximumFractionDigits:3}).format(n||0);
 const dateDE=s=>s?new Date(`${s}T12:00:00`).toLocaleDateString('de-DE'):'–';
 const moneyInput=n=>((n||0)/100).toFixed(2);
-const kinds={strom:'Strom',gas:'Gas',wasser:'Wasser',abwasser:'Abwasser',heizung:'Heizung',warmwasser:'Warmwasser',muell:'Müll',versicherung:'Versicherung',grundsteuer:'Grundsteuer',sonstiges:'Sonstige Kosten'};
+const kinds={strom:'Strom',gas:'Gas',wasser:'Wasser',abwasser:'Abwasser',heizung:'Heizung',warmwasser:'Warmwasser',muell:'Müll',versicherung:'Versicherung',grundsteuer:'Grundsteuer',internet:'Internet & Telefon',sonstiges:'Sonstige Kosten'};
 const methods={meter:'Nach Unterzählern',area:'Wohnfläche',persons:'Personen',equal:'Gleichmäßig',custom:'Individuelle Gewichte'};
 const labels={dashboard:'Übersicht',households:'Haushalte',meters:'Zähler & Stände',tariffs:'Tarife',invoices:'Rechnungen',payments:'Abschläge',report:'Jahresabrechnung',forecast:'Kostenprognose',backup:'Datensicherung',users:'Benutzerverwaltung',settings:'Hauseinstellungen',profile:'Mein Konto'};
 const KindsOptions=Object.entries(kinds).map(([value,label])=>({value,label}));
-let db={households:[],meters:[],readings:[],tariffs:[],invoices:[],payments:[],standing_orders:[]},report=null;
+let db={households:[],meters:[],readings:[],tariffs:[],invoices:[],payments:[],standing_orders:[],provider_installments:[]},report=null;
 let account=null, houseTitle='Villa Kunterbunt', users=[];
 let view='dashboard', year=new Date().getFullYear(), modalType='', editingID=null, forecastResult=null, timer;
 const root=$('content');
@@ -79,14 +79,17 @@ function meters(){
   return page('Zähler & Verbräuche','Haupt- und Unterzähler anlegen und Ablesungen dokumentieren.',addButton('meter','Zähler anlegen')+addButton('reading','Stand eintragen'))+`<section class="card"><div class="card-head"><div><h2>Zählerübersicht</h2><p>Zähler mit den letzten gespeicherten Ständen</p></div></div>${table(['Zähler','Art','Zuordnung','Letzter Stand','Aktion'],rows)}</section><section class="card" style="margin-top:20px"><div class="card-head"><h2>Letzte Ablesungen</h2></div>${table(['Datum','Zähler','Stand','Aktion'],rd)}</section><div class="notice info" style="margin-top:20px">Für eine verbrauchsbasierte Abrechnung sind Ablesungen am Anfang und Ende des Rechnungszeitraums nötig. Zwischenwerte können interpoliert werden; nach außen wird nie extrapoliert.</div>`;
 }
 function tariffs(){
- return page('Tarife & Verträge','Brennwert, Zustandszahl, Energiepreise, Vertragslaufzeiten und Kündigungstermine verwalten.',
+ return page('Tarife & Verträge','Auch Internet-/Telefonverträge, monatliche Anbieterrechnungen und Kündigungstermine verwalten.',
     addButton('tariff','Tarif oder Vertrag erfassen'))+
- '<section class="card">'+table(['Versorger','Kostenart','Gültigkeit / Laufzeit','Arbeitspreis','Gasfaktoren','Kündigung','Aktion'],
+ '<section class="card">'+table(['Versorger','Kostenart','Gültigkeit / Laufzeit','Preis / Grundgebühr','Gasfaktoren','Kündigung','Aktion'],
  (db.tariffs||[]).map(t=>tr([
    '<b>'+E(t.provider)+'</b>',E(kinds[t.kind]||t.kind),
-   'Ab '+dateDE(t.valid_from)+(t.contract_start?'<div class="tiny muted">Start '+dateDE(t.contract_start)+'</div>':'')+
+   'Ab '+dateDE(t.valid_from)+'<div class="tiny muted">Abrechnung: '+({monthly:'monatlich',annual:'jährlich',other:'abweichend'}[t.billing_frequency]||'jährlich')+'</div>'+(t.contract_start?'<div class="tiny muted">Start '+dateDE(t.contract_start)+'</div>':'')+
    (t.contract_end?'<div class="tiny muted">Ende '+dateDE(t.contract_end)+'</div>':''),
-   number(t.unit_price_eur)+' €/kWh'+(t.kind==='gas'?'':' bzw. Einheit')+'<div class="tiny muted">'+number(t.base_month_eur)+' € Grundpreis/Monat</div>',
+   t.kind==='internet'?'<strong>'+number(t.base_month_eur)+' € / Monat</strong><div class="tiny muted">Vertragspauschale'+
+      (t.recurring_cost_mode==='fixed_monthly'?' · automatisch umgelegt':' · nur nach Rechnung')+'</div>':
+   number(t.unit_price_eur)+' € / Einheit<div class="tiny muted">'+number(t.base_month_eur)+' € Grundpreis/Monat'+
+   (t.recurring_cost_mode==='fixed_monthly'?' · monatlich als Kosten':'')+'</div>',
    t.kind==='gas'?(t.gas_calorific_kwh_m3?number(t.gas_calorific_kwh_m3)+' kWh/m³ × '+number(t.gas_condition_factor):'Nicht hinterlegt'):'–',
    t.cancellation_deadline?(dateDE(t.cancellation_deadline)+(t.cancellation_done?' ✓ Erledigt':'')+'<div class="tiny muted">Erinnerung '+Number(t.reminder_days??42)+' Tage vorher</div>'):'–',
    '<div class="table-actions">'+paperlessPreviewLink(t.paperless_document_id)+editBtn('tariff',t.id)+delBtn('tariffs',t.id)+'</div>'
@@ -95,6 +98,32 @@ function tariffs(){
  '<section class="card" style="margin-top:18px"><div class="card-head"><h2>Vertragsvergleich</h2></div><p class="muted">CHECK24 bietet einen externen Strom- und Gasvergleich. Eine automatische Tarifpreis-API ist derzeit nicht angebunden.</p><a href="https://www.check24.de/strom-gas/" target="_blank" rel="noopener noreferrer" class="btn secondary">Strom und Gas bei CHECK24 vergleichen ↗</a></section>';
 }
 function invoices(){return page('Rechnungen & Belege','Lieferantenrechnungen mit Abrechnungszeitraum, Umlage und optionaler PDF-Anlage.',addButton('invoice','Rechnung erfassen'))+`<section class="card">${table(['Rechnungssteller','Kategorie','Zeitraum','Umlage','Betrag','Beleg','Aktion'],db.invoices.map(i=>tr([`<b>${E(i.provider)}</b><div class="tiny muted">${E(i.invoice_number)}</div>`,E(kinds[i.kind]||i.kind),`${dateDE(i.period_start)}<br>${dateDE(i.period_end)}`,E(i.household_id?'Direkt':methods[i.distribution]||i.distribution),`<strong>${currency(i.amount_cents)}</strong>${i.kind==='gas'&&i.gas_calorific_kwh_m3?'<div class="tiny muted">Brennwert '+number(i.gas_calorific_kwh_m3)+' × '+number(i.gas_condition_factor)+'</div>':''}`,(i.attachment_file?`<a href="/api/attachment?id=${i.id}" class="inline-link">PDF ↧</a>`:'')+(i.paperless_document_id?paperlessPreviewLink(i.paperless_document_id):'')||'–',`<div class="table-actions">${editBtn('invoice',i.id)}${delBtn('invoices',i.id)}</div>`])),empty('▤','Noch keine Rechnungen','Für die Abrechnung zunächst Rechnungen erfassen.',addButton('invoice','Rechnung erfassen')))}</section><div class="notice info" style="margin-top:18px">Eine Rechnung zählt zu dem Jahr, in dem ihr Abrechnungszeitraum endet. Für eine rechtlich verbindliche Heizkostenabrechnung muss die Heizkostenverordnung gesondert geprüft werden.</div>`;}
+function providerInstallmentsSection(){
+ const schedules=(db.provider_installments||[]).slice().sort((a,b)=>b.valid_from.localeCompare(a.valid_from));
+ const rows=schedules.map(p=>{
+   const tariff=(db.tariffs||[]).find(t=>t.id===p.tariff_id);
+   return tr(['<strong>'+E(tariff?.provider||'Vertrag #'+p.tariff_id)+'</strong>'+
+       '<div class="tiny muted">'+E(kinds[tariff?.kind]||tariff?.kind||'')+'</div>',
+     currency(p.amount_cents),p.day_of_month+'. des Monats',
+     dateDE(p.valid_from)+(p.valid_until?' bis '+dateDE(p.valid_until):' · laufend'),
+     E(p.note||''),delBtn('provider_installments',p.id)]);
+ });
+ const scheduled=report.provider_installment_entries||[];
+ const nextRows=scheduled.filter(x=>x.date.slice(0,4)===String(year)).slice(-18).reverse()
+   .map(x=>tr([dateDE(x.date),E(x.provider),E(kinds[x.kind]||x.kind),currency(x.amount_cents)]));
+ return '<section class="card" style="margin-bottom:18px"><div class="card-head"><h2>Abschläge an Anbieter</h2>'+
+   addButton('provider_installment','Anbieter-Abschlag / Erhöhung')+'</div>'+
+   '<p class="muted">Beispielsweise Internetvertrag oder monatlicher Strom-Abschlag. Jeder Zahlungsplan ist einem Tarifvertrag zugeordnet.</p>'+
+   table(['Vertrag','Monatsbetrag','Abbuchung','Gültigkeit','Bemerkung','Aktion'],rows,
+     empty('◎','Noch kein Anbieter-Abschlag','Erfasst zunächst einen Vertrag und anschließend den monatlichen Betrag.'))+
+   '<p class="muted tiny" style="margin-top:12px">Bei einer Erhöhung neuen Monatsbetrag mit späterem Startmonat eintragen; bisherige Zeiträume bleiben erhalten. Dies sind geplante Abbuchungen, keine bestätigten Bankzahlungen.</p></section>'+
+   '<section class="card" style="margin-bottom:18px"><h2>Zahlungsplan an Anbieter '+year+'</h2>'+
+   '<p class="muted">Geplante Jahreszahlungen: <strong>'+currency(report.provider_installment_totals?.planned_cents||0)+
+   '</strong>. Sie werden nicht zusätzlich als Hauskosten oder als Abschläge der Haushalte gebucht.</p>'+
+   table(['Termin','Anbieter','Kostenart','Betrag'],nextRows,
+   empty('◎','Noch keine geplanten Anbieter-Zahlungen','Legt einen monatlichen Anbieter-Abschlag an.'))+
+   '</section>';
+}
 function payments(){
  const schedules=(db.standing_orders||[]).slice().sort((a,b)=>b.valid_from.localeCompare(a.valid_from));
  const scheduleRows=schedules.map(o=>{
@@ -109,10 +138,10 @@ function payments(){
   const h=db.households.find(z=>z.id===x.household_id);
   return tr([dateDE(x.date),E(h?.name||'?'),'<span class="pill">Dauerauftrag (planmäßig)</span>',currency(x.amount_cents)]);
  });
- return page('Abschläge & Daueraufträge','Regelmäßige Abschläge mit historisierten Betragsänderungen und einzelne Zahlungen.',
+ return page('Abschläge & Daueraufträge','Abschläge an Versorger getrennt von Zahlungen der Haushalte erfassen.',
     addButton('standing_order','Dauerauftrag / Erhöhung')+addButton('payment','Einzelzahlung buchen'))+
- '<section class="card"><div class="card-head"><h2>Monatliche Daueraufträge</h2></div>'+
- table(['Haushalt','Monatsbetrag','Abbuchung','Gültig ab / bis','Bemerkung','Aktion'],scheduleRows,
+ providerInstallmentsSection()+'<section class="card"><div class="card-head"><h2>Monatliche Daueraufträge der Haushalte</h2></div>'+
+ '<p class="muted tiny">Diese Zahlungen gehen von Haushalten an die Hauskostenkasse und bleiben unabhängig von den Anbieter-Abschlägen.</p>'+table(['Haushalt','Monatsbetrag','Abbuchung','Gültig ab / bis','Bemerkung','Aktion'],scheduleRows,
    empty('◎','Noch kein Dauerauftrag','Legt einen monatlichen Abschlag an.'))+
  '<p class="muted tiny" style="margin-top:16px">Bei einer Erhöhung einen neuen Dauerauftrag mit späterem Startmonat anlegen. Die vorherige Version endet automatisch am Vormonatsende. Ältere Monate bleiben unverändert.</p></section>'+
  '<div class="two-col" style="margin-top:18px"><section class="card"><h2>Planmäßige Daueraufträge '+year+'</h2>'+
@@ -128,11 +157,12 @@ function reportPage(){
  return page('Jahresabrechnung','Automatische, nachvollziehbare Kostenaufteilung je Haushalt.',`<a href="/api/report.pdf?year=${year}" class="btn primary">↓ PDF exportieren</a><a href="/api/report.xlsx?year=${year}" class="btn secondary">↓ Excel</a><a href="/api/report.csv?year=${year}" class="btn secondary">↓ CSV</a><button class="btn secondary" data-print>⎙ Drucken</button>`)+
   (report.warnings.length?`<div class="notice error"><b>Achtung – Abrechnung unvollständig.</b><ul>${report.warnings.map(w=>`<li>${E(w)}</li>`).join('')}</ul></div>`:'')+
   (report.assumptions?.length?`<div class="notice info">${report.assumptions.map(E).join(' ')}</div>`:'')+
+  (report.provider_installment_entries?.length?`<div class="notice info">An Anbieter geplante Monatszahlungen ${year}: <b>${currency(report.provider_installment_totals?.planned_cents||0)}</b>. Diese sind nur eine Zahlungsplanung und nicht als zusätzliche Kosten oder Haushaltseingänge enthalten.</div>`:'')+
   `<section class="card report-print"><div class="report-header"><div class="eyebrow">${E(houseTitle)}</div><h2>Abrechnung ${year}</h2><span class="muted">Stand: ${new Date().toLocaleDateString('de-DE')}</span></div>
    <div class="report-total"><div><small class="muted">Abzurechnende Gesamtkosten</small><br><b>${currency(report.totals.cost_cents)}</b></div><div><small class="muted">Geleistete Vorauszahlungen</small><br><b>${currency(report.totals.paid_cents)}</b></div><div><small class="muted">Offener Saldo</small><br><b>${currency(report.totals.balance_cents)}</b></div></div>
    <h2>Verteilung nach Haushalt</h2>${table(['Haushalt','Fläche','Personen','Kosten','Vorauszahlung','Ergebnis','PDF'],hRows,empty('◎','Noch keine Daten','Erfasst erst Haushalte und Rechnungen.'))}
    <h2 style="margin-top:32px">Kostenarten</h2>${table(['Kostenart','Gesamtkosten'],Object.entries(report.kinds).map(([k,v])=>tr([E(kinds[k]||k),`<b>${currency(v)}</b>`])))}
-   <h2 style="margin-top:32px">Verteilte Rechnungen</h2>${table(['Lieferant','Zeitraum','Kostenart','Betrag'],report.invoices.map(i=>tr([E(i.provider),`${dateDE(i.period_start)} – ${dateDE(i.period_end)}`,E(kinds[i.kind]||i.kind)+(i.gas?'<div class="tiny muted">'+number(i.gas.total_volume_m3)+' m³ → '+number(i.gas.total_energy_kwh)+' kWh</div>':''),currency(i.amount_cents)])))}
+   <h2 style="margin-top:32px">Verteilte Rechnungen und Vertragspauschalen</h2>${table(['Lieferant','Zeitraum','Kostenart','Betrag'],report.invoices.map(i=>tr([E(i.provider)+(i.source==='monthly_contract'?'<div class="tiny muted">Automatische Monatspauschale</div>':''),`${dateDE(i.period_start)} – ${dateDE(i.period_end)}`,E(kinds[i.kind]||i.kind)+(i.gas?'<div class="tiny muted">'+number(i.gas.total_volume_m3)+' m³ → '+number(i.gas.total_energy_kwh)+' kWh</div>':''),currency(i.amount_cents)])))}
    <p class="report-footnote">Ein positiver Saldo bedeutet Nachzahlung, ein negativer Saldo ein Guthaben. Die Verteilung basiert auf den hinterlegten Umlageschlüsseln und den Zählerdaten. Bei fehlerhaften oder fehlenden Werten wird die entsprechende Rechnung ausdrücklich nicht einberechnet. Jahreszuordnung nach Rechnungs-Periodenende. Dies ist eine private Rechenhilfe, keine geprüfte rechtsverbindliche Nebenkostenabrechnung.</p>
   </section>`;
 }
@@ -312,8 +342,19 @@ function modalFields(type,preset={}) {
  case 'reading':return field('meter_id','Zähler','select',{options:meterOpts(),value:preset.meter_id||''})+field('date','Ablesedatum','date',{value:today})+field('value','Zählerstand','number',{step:0.001})+field('note','Bemerkung','textarea',{required:false,wide:true});
  case 'tariff':return field('provider','Versorger')+field('kind','Kostenart','select',{options:KindsOptions})+
    field('valid_from','Tarif gültig ab','date',{value:ym})+
-   field('unit_price_eur','Arbeitspreis pro kWh bzw. Einheit (€)','number',{step:0.0001})+
-   field('base_month_eur','Grundpreis pro Monat (€)','number',{step:0.01})+
+   field('unit_price_eur','Arbeitspreis pro kWh bzw. Einheit (€)','number',{step:0.0001,value:preset.kind==='internet'?0:undefined})+
+   field('recurring_cost_mode','Monatspreis als Hauskosten ansetzen','select',{
+     options:[{value:'invoice',label:'Nein – Kosten nur aus erfassten Rechnungen'},{value:'fixed_monthly',label:'Ja – Monatspauschale automatisch als Kosten buchen'}],
+     empty:false,value:preset.recurring_cost_mode||(preset.kind==='internet'?'fixed_monthly':'invoice'),
+     help:'Internet-Flatrate: ja; Strom-Abschlag: normalerweise nein, denn er ist eine Vorauszahlung. Bei überlappenden echten Rechnungen wird die Monatspauschale nicht zusätzlich gebucht.'})+
+   field('recurring_distribution','Monatspauschale verteilen nach','select',{
+     options:[{value:'area',label:'Wohnfläche'},{value:'persons',label:'Personen'},{value:'equal',label:'Gleiche Anteile'}],
+     empty:false,value:preset.recurring_distribution||'area'})+
+   field('billing_frequency','Abrechnungsintervall','select',{
+     options:[{value:'annual',label:'Jährliche Abrechnung'},{value:'monthly',label:'Monatliche Abrechnung'},{value:'other',label:'Sonstiges / nach Rechnung'}],
+     empty:false,value:preset.billing_frequency||(preset.kind==='internet'?'monthly':'annual'),
+     help:'Strom kann monatlich oder jährlich abgerechnet werden. Anbieter-Abschläge sind davon unabhängig.'})+
+   field('base_month_eur','Monatlicher Grund-/Vertragspreis (€)','number',{step:0.01,help:'Internet: feste Monatsgebühr. Strom: Grundpreis ohne Verbrauch. Kosten werden über Rechnungen gebucht.'})+
    '<div class="field wide gas-hint hidden" id="gasTariffHint"><b>Gasumrechnung</b> – Brennwert und Zustandszahl aus der Gasrechnung eingeben. Zählerstände bleiben in m³.</div>'+
    field('gas_calorific_kwh_m3','Brennwert (kWh/m³)','number',{required:false,step:0.0001,min:1})+
    field('gas_condition_factor','Zustandszahl','number',{required:false,step:0.000001,min:0.1})+
@@ -333,6 +374,13 @@ function modalFields(type,preset={}) {
    paperlessField(preset)+field('note','Bemerkung','textarea',{required:false,wide:true});
  case 'payment':return field('household_id','Haushalt','select',{options:hhOpts()})+field('date','Zahlungsdatum','date',{value:today})+field('amount_eur','Gezahlter Betrag (€)','number',{step:0.01})+
  field('note','Bemerkung','textarea',{value:'Einzelzahlung',required:false,wide:true,help:'Eine manuell erfasste Zahlung ersetzt den planmäßigen Dauerauftrag im selben Monat.'});
+ case 'provider_installment':return field('tariff_id','Anbieter / Vertrag','select',{
+     options:(db.tariffs||[]).map(t=>({value:t.id,label:t.provider+' · '+(kinds[t.kind]||t.kind)+' · ab '+dateDE(t.valid_from)}))})+
+   field('amount_eur','Monatlicher Abschlag an den Anbieter (€)','number',{step:0.01,min:0.01})+
+   field('day_of_month','Tag der Abbuchung (1–31)','number',{value:1,min:1,step:1,help:'Bei kürzeren Monaten gilt der letzte Tag.'})+
+   field('valid_from','Gültig ab (Monatserster)','date',{value:today.slice(0,7)+'-01',help:'Neuer Betrag ab diesem Monat; alte Version endet automatisch im Vormonat.'})+
+   field('valid_until','Gültig bis (optional)','date',{required:false})+
+   field('note','Bemerkung','textarea',{required:false,wide:true,help:'Zahlungsplan ist kein Banknachweis und keine zusätzliche Ausgabe in der Jahresabrechnung.'});
  case 'standing_order':return field('household_id','Haushalt','select',{options:hhOpts()})+
    field('amount_eur','Monatlicher Abschlag (€)','number',{step:0.01,min:0.01})+
    field('day_of_month','Tag der Abbuchung (1–31)','number',{value:1,min:1,step:1,help:'Bei Monaten mit weniger Tagen gilt der letzte Kalendertag.'})+
@@ -345,7 +393,8 @@ function modalFields(type,preset={}) {
 function openModal(type,preset={},editId=null){
  if(['reading','meter','payment','invoice','standing_order'].includes(type)&&db.households.length===0){notify('Bitte zuerst einen Haushalt anlegen.',true);return;}
  if(type==='reading'&&!db.meters.length){notify('Bitte zuerst einen Zähler anlegen.',true);return;}
- modalType=type;editingID=editId;$('dialogTitle').textContent={household:'Haushalt anlegen',meter:'Zähler anlegen',reading:'Zählerstand erfassen',tariff:'Tarif erfassen',invoice:'Rechnung erfassen',payment:'Abschlag erfassen',standing_order:'Dauerauftrag anlegen / Betrag erhöhen'}[type];$('formFields').className='form-grid';$('formFields').innerHTML=modalFields(type,preset);
+ if(type==='provider_installment'&&!db.tariffs.length){notify('Bitte zuerst einen Anbieter-Vertrag anlegen.',true);return;}
+ modalType=type;editingID=editId;$('dialogTitle').textContent={household:'Haushalt anlegen',meter:'Zähler anlegen',reading:'Zählerstand erfassen',tariff:'Tarif erfassen',invoice:'Rechnung erfassen',payment:'Abschlag erfassen',standing_order:'Dauerauftrag anlegen / Betrag erhöhen',provider_installment:'Anbieter-Abschlag anlegen / erhöhen'}[type];$('formFields').className='form-grid';$('formFields').innerHTML=modalFields(type,preset);
  if(editId){
   $('dialogTitle').textContent='Eintrag bearbeiten';
   const fields=$('entryForm').elements;
@@ -373,6 +422,14 @@ function updateModalFields(){
    }
  }
  if(modalType==='tariff'){
+   const internet=category==='internet';
+   const unitField=f.querySelector('[data-field="unit_price_eur"]');
+   unitField?.classList.toggle('hidden',internet);
+   const unitInput=f.elements.unit_price_eur;
+   if(internet&&unitInput){unitInput.value=0;unitInput.required=false;}
+   else if(unitInput)unitInput.required=true;
+   const fixed=f.elements.recurring_cost_mode?.value==='fixed_monthly';
+   f.querySelector('[data-field="recurring_distribution"]')?.classList.toggle('hidden',!fixed);
    const gas=category==='gas';
    $('gasTariffHint')?.classList.toggle('hidden',!gas);
    for(const key of ['gas_calorific_kwh_m3','gas_condition_factor']){
@@ -400,10 +457,10 @@ async function formSubmit(evt){evt.preventDefault();let data={};const form=$('en
      const buffer=await file.arrayBuffer();const bytes=new Uint8Array(buffer);let binary='';for(let offset=0;offset<bytes.length;offset+=8192)binary+=String.fromCharCode(...bytes.slice(offset,offset+8192));data.attachment={name:file.name,base64:btoa(binary)};
    }
  }
- const route={household:'households',meter:'meters',reading:'readings',tariff:'tariffs',invoice:'invoices',payment:'payments',standing_order:'standing-orders'}[modalType];
+ const route={household:'households',meter:'meters',reading:'readings',tariff:'tariffs',invoice:'invoices',payment:'payments',standing_order:'standing-orders',provider_installment:'provider-installments'}[modalType];
  try{await api(`/api/${route}${editingID?'/'+editingID:''}`,{method:editingID?'PATCH':'POST',body:JSON.stringify(data)});$('formDialog').close();notify('Eintrag erfolgreich gespeichert.');await refresh();}catch(e){notify(e.message,true);}
 }
-async function removeEntry(table,id){const name={households:'Haushalt',meters:'Zähler',readings:'Ablesung',tariffs:'Tarif',invoices:'Rechnung',payments:'Zahlung',standing_orders:'Dauerauftrag'}[table];if(!confirm(table==='standing_orders'?'Dauerauftrag und damit alle bisher daraus abgeleiteten Monatsabschläge wirklich entfernen? Alte Abrechnungen können sich ändern.':`${name} #${id} wirklich löschen?`))return;
+async function removeEntry(table,id){const name={households:'Haushalt',meters:'Zähler',readings:'Ablesung',tariffs:'Tarif',invoices:'Rechnung',payments:'Zahlung',standing_orders:'Dauerauftrag',provider_installments:'Anbieter-Abschlag'}[table];if(!confirm(['standing_orders','provider_installments'].includes(table)?'Dauerauftrag wirklich entfernen? Dadurch verschwindet der historische Zahlungsplan.':`${name} #${id} wirklich löschen?`))return;
  try{await api(`/api/${table}/${id}`,{method:'DELETE'});notify(`${name} gelöscht.`);await refresh();}catch(e){notify(e.message,true);}}
 async function runForecast(){if(view!=='forecast')return;
  const price=$('priceGrowth')?.value||3,cons=$('consumptionGrowth')?.value||0,horizon=Number($('forecastHorizon')?.value||5);
@@ -465,7 +522,16 @@ function register(){
      else await submitOwnPassword(form);
    }catch(error){notify(error.message,true);}
  });
- $('formFields').addEventListener('change',updateModalFields);
+ $('formFields').addEventListener('change',event=>{
+   if(modalType==='tariff'&&event.target.name==='kind'){
+     const isInternet=event.target.value==='internet';
+     if($('entryForm').elements.billing_frequency)
+       $('entryForm').elements.billing_frequency.value=isInternet?'monthly':'annual';
+     if($('entryForm').elements.recurring_cost_mode)
+       $('entryForm').elements.recurring_cost_mode.value=isInternet?'fixed_monthly':'invoice';
+   }
+   updateModalFields();
+ });
  $('entryForm').addEventListener('submit',formSubmit);
  $('closeModal').addEventListener('click',()=>$('formDialog').close());$('cancelModal').addEventListener('click',()=>$('formDialog').close());
  $('paperlessClose').addEventListener('click',()=>$('paperlessDialog').close());
