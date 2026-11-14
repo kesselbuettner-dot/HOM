@@ -1,5 +1,6 @@
 'use strict';
 // Nur Server-seitiger Zugriff auf das Archiv. Keine Tokens/OCR-Texte an den Browser.
+const crypto=require('node:crypto');
 const PRIVATE_HOST=/^(?:localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|[a-z0-9-]+)$/i;
 function error(message,status=400){return Object.assign(new Error(message),{status});}
 function positiveId(value,label='Dokument'){
@@ -30,6 +31,12 @@ function createClient(config=process.env,send=globalThis.fetch){
   }
   const ready=Boolean(base&&token&&release.length===1&&categories.length>0);
   const categorySet=new Set(categories);
+  // Die Prüfung wird an die konkrete Kombination aus Server, Dienst-Token und Tags gebunden.
+  // Bei jeder Änderung muss erneut eine bekannte private Dokument-ID negativ getestet werden.
+  function fingerprint(){
+    if(!ready)return null;
+    return crypto.createHash('sha256').update(JSON.stringify([base.origin,token,release[0],categories.slice().sort((a,b)=>a-b)])).digest('hex');
+  }
   function status(){return {provider:'Paperless-ngx',configured:ready,read_only:true,release_tag_configured:release.length===1,categories_configured:categories.length>0};}
   function requireReady(){
     if(!ready)throw error('Paperless noch nicht eingerichtet: URL, Token, Freigabe-Tag-ID und Kategorien fehlen.',503);
@@ -122,6 +129,6 @@ function createClient(config=process.env,send=globalThis.fetch){
       throw error('Berechtigungsprüfung fehlgeschlagen.',502);
     }finally{await resp.body?.cancel().catch(()=>{});}
   }
-  return {status,search,document,preview,privateProbe};
+  return {status,fingerprint,search,document,preview,privateProbe};
 }
 module.exports={createClient,positiveId};
