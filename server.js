@@ -66,9 +66,16 @@ function validate(table,v) {
    if(deadline&&contractEnd&&deadline>contractEnd)fail('Kündigungstermin darf nicht nach dem Vertragsende liegen.');
    const days=v.reminder_days===null||v.reminder_days===undefined||v.reminder_days===''?42:Number(v.reminder_days);
    if(!Number.isSafeInteger(days)||days<0||days>365)fail('Erinnerungsvorlauf muss zwischen 0 und 365 Tagen liegen.');
+   const recurring=v.recurring_cost_mode==='fixed_monthly'?'fixed_monthly':
+     v.recurring_cost_mode==='invoice'?'invoice':category==='internet'?'fixed_monthly':'invoice';
+   const monthly=real(v.base_month_eur,'Monatlicher Grundpreis',100000);
+   if(recurring==='fixed_monthly'&&Math.round(monthly*100)<=0)
+     fail('Für automatisch gebuchte Monatskosten muss der Monatspreis größer als 0 sein.');
+   const distribution=['area','persons','equal'].includes(v.recurring_distribution)?v.recurring_distribution:'area';
    return {kind:category,provider:text(v.provider,'Versorger',120),valid_from:day(v.valid_from,'Gültig ab'),
      unit_price_eur:real(category==='internet'&&v.unit_price_eur===''?0:v.unit_price_eur,'Arbeitspreis',10000),
-     base_month_eur:real(v.base_month_eur,'Monatlicher Grundpreis',100000),
+     base_month_eur:monthly,
+     recurring_cost_mode:recurring,recurring_distribution:distribution,
      billing_frequency:['monthly','annual','other'].includes(v.billing_frequency)?v.billing_frequency:(category==='internet'?'monthly':'annual'),
      ...gas,contract_start:contractStart,contract_end:contractEnd,cancellation_deadline:deadline,
      reminder_days:days,cancellation_done:v.cancellation_done===true||v.cancellation_done==='1'?1:0,
