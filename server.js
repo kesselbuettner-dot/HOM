@@ -10,6 +10,7 @@ const {validDate,yearReport,forecast,standingOrderEntries,contractAlerts}=requir
 const {createXlsx}=require('./src/xlsx');
 const {linesToPdf}=require('./src/pdf');
 const auth=require('./src/auth');
+const paperless=require('./src/paperless').createClient();
 const HOST=process.env.HOST||'127.0.0.1', PORT=Number(process.env.PORT||4317);
 const allowedOrigins=new Set([`http://127.0.0.1:${PORT}`,`http://localhost:${PORT}`,...(process.env.HOM_ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).filter(Boolean)]);
 const ROOT=path.join(__dirname,'public');
@@ -69,7 +70,7 @@ function validate(table,v) {
      unit_price_eur:real(v.unit_price_eur,'Arbeitspreis',10000),base_month_eur:real(v.base_month_eur,'Grundpreis',100000),
      ...gas,contract_start:contractStart,contract_end:contractEnd,cancellation_deadline:deadline,
      reminder_days:days,cancellation_done:v.cancellation_done===true||v.cancellation_done==='1'?1:0,
-     note:text(v.note,'Bemerkung',500,false)};
+     note:text(v.note,'Bemerkung',500,false),paperless_document_id:v.paperless_document_id?Number(v.paperless_document_id):null};
  }
  case 'invoices':{
    const start=day(v.period_start,'Zeitraum von'),end=day(v.period_end,'Zeitraum bis');if(start>end)fail('Rechnungszeitraum ist umgekehrt.');
@@ -95,7 +96,8 @@ function validate(table,v) {
    return {provider:text(v.provider,'Rechnungssteller',150),invoice_number:text(v.invoice_number,'Rechnungsnummer',100,false),kind:category,
      period_start:start,period_end:end,amount_cents:parseMoney(v.amount_eur),distribution,common_key:ck,
      household_id:optRef('households',v.household_id),custom_weights:JSON.stringify(custom),
-     gas_tariff_id:gasTariffId,...factors,note:text(v.note,'Bemerkung',1000,false)};
+     gas_tariff_id:gasTariffId,...factors,note:text(v.note,'Bemerkung',1000,false),
+     paperless_document_id:v.paperless_document_id?Number(v.paperless_document_id):null};
  }
  case 'payments':return {household_id:assertRef('households',v.household_id),date:day(v.date,'Zahlungsdatum'),amount_cents:parseMoney(v.amount_eur),note:text(v.note,'Bemerkung',300,false)};
  case 'standing_orders':{
@@ -206,6 +208,26 @@ async function handle(req,res){
    }
    if(p.startsWith('/api/')){
      const user=auth.currentUser(db,req);
+     if(req.method==='GET'&&p==='/api/paperless/status')
+       return send(res,200,paperless.status());
+     if(req.method==='GET'&&p==='/api/paperless/documents'){
+       const list=await paperless.search(u.searchParams.get('q')||'');
+       return send(res,200,{documents:list});
+     }
+     const previewMatch=p.match(/^\/api\/paperless\/documents\/(\d+)\/preview$/);
+     if(req.method==='GET'&&previewMatch){
+       const binary=await paperless.preview(previewMatch[1]);
+       res.writeHead(200,{
+         'Content-Type':'application/pdf','Content-Disposition':'inline; filename="HOM-Beleg.pdf"',
+         'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
+         'Content-Security-Policy':"sandbox; default-src 'none'; frame-ancestors 'self'"
+       });return res.end(binary);
+     }
+     if(req.method==='POST'&&p==='/api/paperless/test-private'){
+       if(user?.role!=='admin')fail('Nur Administratoren dürfen Archivberechtigungen prüfen.',403);
+       const values=await parseBody(req);
+       return send(res,200,await paperless.privateProbe(values.document_id));
+     }
      if(req.method==='GET'&&p==='/api/contracts/alerts')return send(res,200,{alerts:contractAlerts(all('tariffs'))});
      if(req.method==='GET'&&p==='/api/standing-orders/preview'){
        const y=Number(u.searchParams.get('year')||YEAR);
@@ -358,6 +380,10 @@ async function handle(req,res){
        if(req.method==='POST'&&!entryId&&table!=='standing_orders'){
          const body=await parseBody(req);
          const clean=validate(table,body);
+         if((table==='invoices'||table==='tariffs')&&clean.paperless_document_id!==null){
+           const doc=await paperless.document(clean.paperless_document_id);
+           clean.paperless_document_id=doc.id;
+         }
          if(table==='invoices'&&clean.invoice_number){
            const duplicate=db.prepare('SELECT id FROM invoices WHERE provider=? AND invoice_number=?').get(clean.provider,clean.invoice_number);
            if(duplicate)fail('Diese Rechnungsnummer ist bei diesem Rechnungssteller bereits erfasst.');
@@ -371,6 +397,10 @@ async function handle(req,res){
          if(!existing)fail('Nicht gefunden.',404);
          const body=await parseBody(req);
          const clean=validate(table,body);
+         if((table==='invoices'||table==='tariffs')&&clean.paperless_document_id!==null){
+           const doc=await paperless.document(clean.paperless_document_id);
+           clean.paperless_document_id=doc.id;
+         }
          if(table==='invoices'&&existing.gas_tariff_id&&clean.gas_tariff_id===existing.gas_tariff_id&&existing.gas_calorific_kwh_m3&&existing.gas_condition_factor){
            // Beim späteren Bearbeiten der Rechnung historische Gasfaktoren nicht überschreiben.
            clean.gas_calorific_kwh_m3=existing.gas_calorific_kwh_m3;
