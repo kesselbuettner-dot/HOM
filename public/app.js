@@ -339,8 +339,12 @@ function modalFields(type,preset={}) {
  case 'reading':return field('meter_id','Zähler','select',{options:meterOpts(),value:preset.meter_id||''})+field('date','Ablesedatum','date',{value:today})+field('value','Zählerstand','number',{step:0.001})+field('note','Bemerkung','textarea',{required:false,wide:true});
  case 'tariff':return field('provider','Versorger')+field('kind','Kostenart','select',{options:KindsOptions})+
    field('valid_from','Tarif gültig ab','date',{value:ym})+
-   field('unit_price_eur','Arbeitspreis pro kWh bzw. Einheit (€)','number',{step:0.0001})+
-   field('base_month_eur','Grundpreis pro Monat (€)','number',{step:0.01})+
+   field('unit_price_eur','Arbeitspreis pro kWh bzw. Einheit (€)','number',{step:0.0001,value:preset.kind==='internet'?0:undefined})+
+   field('billing_frequency','Abrechnungsintervall','select',{
+     options:[{value:'annual',label:'Jährliche Abrechnung'},{value:'monthly',label:'Monatliche Abrechnung'},{value:'other',label:'Sonstiges / nach Rechnung'}],
+     empty:false,value:preset.billing_frequency||(preset.kind==='internet'?'monthly':'annual'),
+     help:'Strom kann monatlich oder jährlich abgerechnet werden. Anbieter-Abschläge sind davon unabhängig.'})+
+   field('base_month_eur','Monatlicher Grund-/Vertragspreis (€)','number',{step:0.01,help:'Internet: feste Monatsgebühr. Strom: Grundpreis ohne Verbrauch. Kosten werden über Rechnungen gebucht.'})+
    '<div class="field wide gas-hint hidden" id="gasTariffHint"><b>Gasumrechnung</b> – Brennwert und Zustandszahl aus der Gasrechnung eingeben. Zählerstände bleiben in m³.</div>'+
    field('gas_calorific_kwh_m3','Brennwert (kWh/m³)','number',{required:false,step:0.0001,min:1})+
    field('gas_condition_factor','Zustandszahl','number',{required:false,step:0.000001,min:0.1})+
@@ -360,6 +364,13 @@ function modalFields(type,preset={}) {
    paperlessField(preset)+field('note','Bemerkung','textarea',{required:false,wide:true});
  case 'payment':return field('household_id','Haushalt','select',{options:hhOpts()})+field('date','Zahlungsdatum','date',{value:today})+field('amount_eur','Gezahlter Betrag (€)','number',{step:0.01})+
  field('note','Bemerkung','textarea',{value:'Einzelzahlung',required:false,wide:true,help:'Eine manuell erfasste Zahlung ersetzt den planmäßigen Dauerauftrag im selben Monat.'});
+ case 'provider_installment':return field('tariff_id','Anbieter / Vertrag','select',{
+     options:(db.tariffs||[]).map(t=>({value:t.id,label:t.provider+' · '+(kinds[t.kind]||t.kind)+' · ab '+dateDE(t.valid_from)}))})+
+   field('amount_eur','Monatlicher Abschlag an den Anbieter (€)','number',{step:0.01,min:0.01})+
+   field('day_of_month','Tag der Abbuchung (1–31)','number',{value:1,min:1,step:1,help:'Bei kürzeren Monaten gilt der letzte Tag.'})+
+   field('valid_from','Gültig ab (Monatserster)','date',{value:today.slice(0,7)+'-01',help:'Neuer Betrag ab diesem Monat; alte Version endet automatisch im Vormonat.'})+
+   field('valid_until','Gültig bis (optional)','date',{required:false})+
+   field('note','Bemerkung','textarea',{required:false,wide:true,help:'Zahlungsplan ist kein Banknachweis und keine zusätzliche Ausgabe in der Jahresabrechnung.'});
  case 'standing_order':return field('household_id','Haushalt','select',{options:hhOpts()})+
    field('amount_eur','Monatlicher Abschlag (€)','number',{step:0.01,min:0.01})+
    field('day_of_month','Tag der Abbuchung (1–31)','number',{value:1,min:1,step:1,help:'Bei Monaten mit weniger Tagen gilt der letzte Kalendertag.'})+
@@ -372,7 +383,8 @@ function modalFields(type,preset={}) {
 function openModal(type,preset={},editId=null){
  if(['reading','meter','payment','invoice','standing_order'].includes(type)&&db.households.length===0){notify('Bitte zuerst einen Haushalt anlegen.',true);return;}
  if(type==='reading'&&!db.meters.length){notify('Bitte zuerst einen Zähler anlegen.',true);return;}
- modalType=type;editingID=editId;$('dialogTitle').textContent={household:'Haushalt anlegen',meter:'Zähler anlegen',reading:'Zählerstand erfassen',tariff:'Tarif erfassen',invoice:'Rechnung erfassen',payment:'Abschlag erfassen',standing_order:'Dauerauftrag anlegen / Betrag erhöhen'}[type];$('formFields').className='form-grid';$('formFields').innerHTML=modalFields(type,preset);
+ if(type==='provider_installment'&&!db.tariffs.length){notify('Bitte zuerst einen Anbieter-Vertrag anlegen.',true);return;}
+ modalType=type;editingID=editId;$('dialogTitle').textContent={household:'Haushalt anlegen',meter:'Zähler anlegen',reading:'Zählerstand erfassen',tariff:'Tarif erfassen',invoice:'Rechnung erfassen',payment:'Abschlag erfassen',standing_order:'Dauerauftrag anlegen / Betrag erhöhen',provider_installment:'Anbieter-Abschlag anlegen / erhöhen'}[type];$('formFields').className='form-grid';$('formFields').innerHTML=modalFields(type,preset);
  if(editId){
   $('dialogTitle').textContent='Eintrag bearbeiten';
   const fields=$('entryForm').elements;
@@ -400,6 +412,12 @@ function updateModalFields(){
    }
  }
  if(modalType==='tariff'){
+   const internet=category==='internet';
+   const unitField=f.querySelector('[data-field="unit_price_eur"]');
+   unitField?.classList.toggle('hidden',internet);
+   const unitInput=f.elements.unit_price_eur;
+   if(internet&&unitInput){unitInput.value=0;unitInput.required=false;}
+   else if(unitInput)unitInput.required=true;
    const gas=category==='gas';
    $('gasTariffHint')?.classList.toggle('hidden',!gas);
    for(const key of ['gas_calorific_kwh_m3','gas_condition_factor']){
@@ -427,10 +445,10 @@ async function formSubmit(evt){evt.preventDefault();let data={};const form=$('en
      const buffer=await file.arrayBuffer();const bytes=new Uint8Array(buffer);let binary='';for(let offset=0;offset<bytes.length;offset+=8192)binary+=String.fromCharCode(...bytes.slice(offset,offset+8192));data.attachment={name:file.name,base64:btoa(binary)};
    }
  }
- const route={household:'households',meter:'meters',reading:'readings',tariff:'tariffs',invoice:'invoices',payment:'payments',standing_order:'standing-orders'}[modalType];
+ const route={household:'households',meter:'meters',reading:'readings',tariff:'tariffs',invoice:'invoices',payment:'payments',standing_order:'standing-orders',provider_installment:'provider-installments'}[modalType];
  try{await api(`/api/${route}${editingID?'/'+editingID:''}`,{method:editingID?'PATCH':'POST',body:JSON.stringify(data)});$('formDialog').close();notify('Eintrag erfolgreich gespeichert.');await refresh();}catch(e){notify(e.message,true);}
 }
-async function removeEntry(table,id){const name={households:'Haushalt',meters:'Zähler',readings:'Ablesung',tariffs:'Tarif',invoices:'Rechnung',payments:'Zahlung',standing_orders:'Dauerauftrag'}[table];if(!confirm(table==='standing_orders'?'Dauerauftrag und damit alle bisher daraus abgeleiteten Monatsabschläge wirklich entfernen? Alte Abrechnungen können sich ändern.':`${name} #${id} wirklich löschen?`))return;
+async function removeEntry(table,id){const name={households:'Haushalt',meters:'Zähler',readings:'Ablesung',tariffs:'Tarif',invoices:'Rechnung',payments:'Zahlung',standing_orders:'Dauerauftrag',provider_installments:'Anbieter-Abschlag'}[table];if(!confirm(['standing_orders','provider_installments'].includes(table)?'Dauerauftrag wirklich entfernen? Dadurch verschwindet der historische Zahlungsplan.':`${name} #${id} wirklich löschen?`))return;
  try{await api(`/api/${table}/${id}`,{method:'DELETE'});notify(`${name} gelöscht.`);await refresh();}catch(e){notify(e.message,true);}}
 async function runForecast(){if(view!=='forecast')return;
  const price=$('priceGrowth')?.value||3,cons=$('consumptionGrowth')?.value||0,horizon=Number($('forecastHorizon')?.value||5);
@@ -492,7 +510,11 @@ function register(){
      else await submitOwnPassword(form);
    }catch(error){notify(error.message,true);}
  });
- $('formFields').addEventListener('change',updateModalFields);
+ $('formFields').addEventListener('change',event=>{
+   if(modalType==='tariff'&&event.target.name==='kind'&&$('entryForm').elements.billing_frequency)
+     $('entryForm').elements.billing_frequency.value=event.target.value==='internet'?'monthly':'annual';
+   updateModalFields();
+ });
  $('entryForm').addEventListener('submit',formSubmit);
  $('closeModal').addEventListener('click',()=>$('formDialog').close());$('cancelModal').addEventListener('click',()=>$('formDialog').close());
  $('paperlessClose').addEventListener('click',()=>$('paperlessDialog').close());
