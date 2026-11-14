@@ -105,8 +105,9 @@ async function createUser(db,body){
   if(!/^[a-z0-9._-]{3,32}$/.test(username))fail('Benutzername: 3 bis 32 Zeichen, a-z, 0-9, Punkt, Unterstrich oder Bindestrich.');
   const displayName=validName(body.display_name,'Anzeigename');
   const role=body.role==='admin'?'admin':body.role==='user'?'user':fail('Ungültige Rolle.');
+  const active=body.active===false?0:1;
   const hash=await bcrypt.hash(validPassword(body.password),12);
-  const id=db.prepare('INSERT INTO auth_users (username,display_name,password_hash,role,active) VALUES (?,?,?,?,1)').run(username,displayName,hash,role).lastInsertRowid;
+  const id=db.prepare('INSERT INTO auth_users (username,display_name,password_hash,role,active) VALUES (?,?,?,?,?)').run(username,displayName,hash,role,active).lastInsertRowid;
   return publicUser(db.prepare('SELECT * FROM auth_users WHERE id=?').get(id));
 }
 async function updateUser(db,targetId,body){
