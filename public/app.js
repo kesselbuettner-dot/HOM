@@ -86,8 +86,10 @@ function tariffs(){
    '<b>'+E(t.provider)+'</b>',E(kinds[t.kind]||t.kind),
    'Ab '+dateDE(t.valid_from)+'<div class="tiny muted">Abrechnung: '+({monthly:'monatlich',annual:'jährlich',other:'abweichend'}[t.billing_frequency]||'jährlich')+'</div>'+(t.contract_start?'<div class="tiny muted">Start '+dateDE(t.contract_start)+'</div>':'')+
    (t.contract_end?'<div class="tiny muted">Ende '+dateDE(t.contract_end)+'</div>':''),
-   t.kind==='internet'?'<strong>'+number(t.base_month_eur)+' € / Monat</strong><div class="tiny muted">Vertragspauschale</div>':
-   number(t.unit_price_eur)+' € / Einheit<div class="tiny muted">'+number(t.base_month_eur)+' € Grundpreis/Monat</div>',
+   t.kind==='internet'?'<strong>'+number(t.base_month_eur)+' € / Monat</strong><div class="tiny muted">Vertragspauschale'+
+      (t.recurring_cost_mode==='fixed_monthly'?' · automatisch umgelegt':' · nur nach Rechnung')+'</div>':
+   number(t.unit_price_eur)+' € / Einheit<div class="tiny muted">'+number(t.base_month_eur)+' € Grundpreis/Monat'+
+   (t.recurring_cost_mode==='fixed_monthly'?' · monatlich als Kosten':'')+'</div>',
    t.kind==='gas'?(t.gas_calorific_kwh_m3?number(t.gas_calorific_kwh_m3)+' kWh/m³ × '+number(t.gas_condition_factor):'Nicht hinterlegt'):'–',
    t.cancellation_deadline?(dateDE(t.cancellation_deadline)+(t.cancellation_done?' ✓ Erledigt':'')+'<div class="tiny muted">Erinnerung '+Number(t.reminder_days??42)+' Tage vorher</div>'):'–',
    '<div class="table-actions">'+paperlessPreviewLink(t.paperless_document_id)+editBtn('tariff',t.id)+delBtn('tariffs',t.id)+'</div>'
@@ -159,7 +161,7 @@ function reportPage(){
    <div class="report-total"><div><small class="muted">Abzurechnende Gesamtkosten</small><br><b>${currency(report.totals.cost_cents)}</b></div><div><small class="muted">Geleistete Vorauszahlungen</small><br><b>${currency(report.totals.paid_cents)}</b></div><div><small class="muted">Offener Saldo</small><br><b>${currency(report.totals.balance_cents)}</b></div></div>
    <h2>Verteilung nach Haushalt</h2>${table(['Haushalt','Fläche','Personen','Kosten','Vorauszahlung','Ergebnis','PDF'],hRows,empty('◎','Noch keine Daten','Erfasst erst Haushalte und Rechnungen.'))}
    <h2 style="margin-top:32px">Kostenarten</h2>${table(['Kostenart','Gesamtkosten'],Object.entries(report.kinds).map(([k,v])=>tr([E(kinds[k]||k),`<b>${currency(v)}</b>`])))}
-   <h2 style="margin-top:32px">Verteilte Rechnungen</h2>${table(['Lieferant','Zeitraum','Kostenart','Betrag'],report.invoices.map(i=>tr([E(i.provider),`${dateDE(i.period_start)} – ${dateDE(i.period_end)}`,E(kinds[i.kind]||i.kind)+(i.gas?'<div class="tiny muted">'+number(i.gas.total_volume_m3)+' m³ → '+number(i.gas.total_energy_kwh)+' kWh</div>':''),currency(i.amount_cents)])))}
+   <h2 style="margin-top:32px">Verteilte Rechnungen und Vertragspauschalen</h2>${table(['Lieferant','Zeitraum','Kostenart','Betrag'],report.invoices.map(i=>tr([E(i.provider)+(i.source==='monthly_contract'?'<div class="tiny muted">Automatische Monatspauschale</div>':''),`${dateDE(i.period_start)} – ${dateDE(i.period_end)}`,E(kinds[i.kind]||i.kind)+(i.gas?'<div class="tiny muted">'+number(i.gas.total_volume_m3)+' m³ → '+number(i.gas.total_energy_kwh)+' kWh</div>':''),currency(i.amount_cents)])))}
    <p class="report-footnote">Ein positiver Saldo bedeutet Nachzahlung, ein negativer Saldo ein Guthaben. Die Verteilung basiert auf den hinterlegten Umlageschlüsseln und den Zählerdaten. Bei fehlerhaften oder fehlenden Werten wird die entsprechende Rechnung ausdrücklich nicht einberechnet. Jahreszuordnung nach Rechnungs-Periodenende. Dies ist eine private Rechenhilfe, keine geprüfte rechtsverbindliche Nebenkostenabrechnung.</p>
   </section>`;
 }
@@ -340,6 +342,13 @@ function modalFields(type,preset={}) {
  case 'tariff':return field('provider','Versorger')+field('kind','Kostenart','select',{options:KindsOptions})+
    field('valid_from','Tarif gültig ab','date',{value:ym})+
    field('unit_price_eur','Arbeitspreis pro kWh bzw. Einheit (€)','number',{step:0.0001,value:preset.kind==='internet'?0:undefined})+
+   field('recurring_cost_mode','Monatspreis als Hauskosten ansetzen','select',{
+     options:[{value:'invoice',label:'Nein – Kosten nur aus erfassten Rechnungen'},{value:'fixed_monthly',label:'Ja – Monatspauschale automatisch als Kosten buchen'}],
+     empty:false,value:preset.recurring_cost_mode||(preset.kind==='internet'?'fixed_monthly':'invoice'),
+     help:'Internet-Flatrate: ja; Strom-Abschlag: normalerweise nein, denn er ist eine Vorauszahlung. Bei überlappenden echten Rechnungen wird die Monatspauschale nicht zusätzlich gebucht.'})+
+   field('recurring_distribution','Monatspauschale verteilen nach','select',{
+     options:[{value:'area',label:'Wohnfläche'},{value:'persons',label:'Personen'},{value:'equal',label:'Gleiche Anteile'}],
+     empty:false,value:preset.recurring_distribution||'area'})+
    field('billing_frequency','Abrechnungsintervall','select',{
      options:[{value:'annual',label:'Jährliche Abrechnung'},{value:'monthly',label:'Monatliche Abrechnung'},{value:'other',label:'Sonstiges / nach Rechnung'}],
      empty:false,value:preset.billing_frequency||(preset.kind==='internet'?'monthly':'annual'),
@@ -418,6 +427,8 @@ function updateModalFields(){
    const unitInput=f.elements.unit_price_eur;
    if(internet&&unitInput){unitInput.value=0;unitInput.required=false;}
    else if(unitInput)unitInput.required=true;
+   const fixed=f.elements.recurring_cost_mode?.value==='fixed_monthly';
+   f.querySelector('[data-field="recurring_distribution"]')?.classList.toggle('hidden',!fixed);
    const gas=category==='gas';
    $('gasTariffHint')?.classList.toggle('hidden',!gas);
    for(const key of ['gas_calorific_kwh_m3','gas_condition_factor']){
@@ -511,8 +522,13 @@ function register(){
    }catch(error){notify(error.message,true);}
  });
  $('formFields').addEventListener('change',event=>{
-   if(modalType==='tariff'&&event.target.name==='kind'&&$('entryForm').elements.billing_frequency)
-     $('entryForm').elements.billing_frequency.value=event.target.value==='internet'?'monthly':'annual';
+   if(modalType==='tariff'&&event.target.name==='kind'){
+     const isInternet=event.target.value==='internet';
+     if($('entryForm').elements.billing_frequency)
+       $('entryForm').elements.billing_frequency.value=isInternet?'monthly':'annual';
+     if($('entryForm').elements.recurring_cost_mode)
+       $('entryForm').elements.recurring_cost_mode.value=isInternet?'fixed_monthly':'invoice';
+   }
    updateModalFields();
  });
  $('entryForm').addEventListener('submit',formSubmit);
