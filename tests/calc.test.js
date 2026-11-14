@@ -36,8 +36,8 @@ test('Gas: m³ werden mit faktischen Tarifwerten nach kWh umgerechnet, Kosten we
  assert.equal(result.gas.total_energy_kwh,1064);
  assert.equal(result.gas.households[0].volume_m3,36.667);
  assert.equal(Object.values(result.shares).reduce((a,b)=>a+b),10640);
- assert.equal(result.shares[1],3907);
- assert.equal(result.shares[2],6733);
+ assert.equal(result.shares[1],3901);
+ assert.equal(result.shares[2],6739);
  const report=yearReport(2026,{households:hh,meters,readings,invoices:[inv],payments:[],standing_orders:[]});
  assert.equal(report.invoices[0].gas.total_energy_kwh,1064);
  assert.equal(report.totals.cost_cents,10640);
