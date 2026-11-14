@@ -79,7 +79,8 @@ addMissingColumns('tariffs',{
   cancellation_deadline:'TEXT',
   reminder_days:'INTEGER NOT NULL DEFAULT 42',
   cancellation_done:'INTEGER NOT NULL DEFAULT 0',
-  paperless_document_id:'INTEGER'
+  paperless_document_id:'INTEGER',
+  billing_frequency:"TEXT NOT NULL DEFAULT 'annual'"
 });
 addMissingColumns('invoices',{
   gas_calorific_kwh_m3:'REAL',
