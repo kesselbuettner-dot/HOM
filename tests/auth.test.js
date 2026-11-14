@@ -52,6 +52,10 @@ test('HOM: Loginseite, API-Schutz, 30-Tage-Cookie, Abmeldung', async (t) => {
   assert.equal(state.status,200);
   const backup=await fetch(url+'/api/backup');
   assert.equal(backup.status,401);
+  const archive=await fetch(url+'/api/paperless/documents');
+  assert.equal(archive.status,401);
+  const blockedPreview=await fetch(url+'/api/paperless/documents/12/preview');
+  assert.equal(blockedPreview.status,401);
   const end=await fetch(url+'/logout',{
     method:'POST',redirect:'manual',
     headers:{cookie:sessionCookie,origin:'http://127.0.0.1:4317'}
