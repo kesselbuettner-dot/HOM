@@ -7,16 +7,27 @@ const dateDE=s=>s?new Date(`${s}T12:00:00`).toLocaleDateString('de-DE'):'–';
 const moneyInput=n=>((n||0)/100).toFixed(2);
 const kinds={strom:'Strom',gas:'Gas',wasser:'Wasser',abwasser:'Abwasser',heizung:'Heizung',warmwasser:'Warmwasser',muell:'Müll',versicherung:'Versicherung',grundsteuer:'Grundsteuer',sonstiges:'Sonstige Kosten'};
 const methods={meter:'Nach Unterzählern',area:'Wohnfläche',persons:'Personen',equal:'Gleichmäßig',custom:'Individuelle Gewichte'};
-const labels={dashboard:'Übersicht',households:'Haushalte',meters:'Zähler & Stände',tariffs:'Tarife',invoices:'Rechnungen',payments:'Abschläge',report:'Jahresabrechnung',forecast:'Kostenprognose',backup:'Datensicherung'};
+const labels={dashboard:'Übersicht',households:'Haushalte',meters:'Zähler & Stände',tariffs:'Tarife',invoices:'Rechnungen',payments:'Abschläge',report:'Jahresabrechnung',forecast:'Kostenprognose',backup:'Datensicherung',users:'Benutzerverwaltung',settings:'Hauseinstellungen',profile:'Mein Konto'};
 const KindsOptions=Object.entries(kinds).map(([value,label])=>({value,label}));
 let db={households:[],meters:[],readings:[],tariffs:[],invoices:[],payments:[]},report=null;
+let account=null, houseTitle='Villa Kunterbunt', users=[];
 let view='dashboard', year=new Date().getFullYear(), modalType='', editingID=null, forecastResult=null, timer;
 const root=$('content');
 function notify(message,error=false){const toast=$('toast');toast.textContent=message;toast.style.background=error?'#a34242':'#14343e';toast.classList.add('show');clearTimeout(timer);timer=setTimeout(()=>toast.classList.remove('show'),5000);}
 async function api(url,options={}) { const r=await fetch(url,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}}); if(!r.ok){let msg;try{msg=(await r.json()).error;}catch{msg=r.statusText;}throw new Error(msg||'Unbekannter Serverfehler.');}return r.json();}
-async function refresh(){try{const [data,result]=await Promise.all([api('/api/state'),api(`/api/report?year=${year}`)]);db=data;report=result;render();}catch(err){notify(err.message,true);root.innerHTML=`<div class="notice error">${E(err.message)}</div>`;}}
-function go(name){view=name;document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===name));$('crumbLabel').textContent=labels[name];$('sidebar').classList.remove('open');render();window.scrollTo({top:0,behavior:'instant'});}
-function page(title,subtitle,actions=''){return `<div class="page-head"><div><div class="eyebrow">Mehrgenerationenhaus · ${year}</div><h1>${title}</h1><p>${subtitle}</p></div><div class="head-actions">${actions}</div></div>`;}
+function isAdmin(){return account?.role==='admin';}
+function updateHouseShell(){
+  $('headerHouseTitle').textContent=houseTitle;
+  $('brandHouseTitle').textContent=houseTitle;
+  $('accountName').textContent=account?.display_name||'';
+  $('navUsers').hidden=!isAdmin();
+  $('navSettings').hidden=!isAdmin();
+  document.title=houseTitle+' · Hauskosten-Manager';
+}
+async function loadUsers(){const response=await api('/api/users');users=response.users;}
+async function refresh(){try{const [data,result,session]=await Promise.all([api('/api/state'),api(`/api/report?year=${year}`),api('/api/auth/me')]);db=data;report=result;account=session.user;houseTitle=session.house_title||'Villa Kunterbunt';if(view==='users'&&isAdmin())await loadUsers();updateHouseShell();render();}catch(err){notify(err.message,true);root.innerHTML=`<div class="notice error">${E(err.message)}</div>`;}}
+function go(name){if((name==='users'||name==='settings')&&!isAdmin()){notify('Nur Administratoren.',true);return;}view=name;document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===name));$('crumbLabel').textContent=labels[name];$('sidebar').classList.remove('open');if(name==='users')loadUsers().then(render).catch(e=>notify(e.message,true));else render();window.scrollTo({top:0,behavior:'instant'});}
+function page(title,subtitle,actions=''){return `<div class="page-head"><div><div class="eyebrow">${E(houseTitle)} · ${year}</div><h1>${title}</h1><p>${subtitle}</p></div><div class="head-actions">${actions}</div></div>`;}
 function addButton(type,label='Neuer Eintrag'){return `<button class="btn primary" data-add="${type}">＋ ${E(label)}</button>`;}
 function empty(icon,title,detail,button=''){return `<div class="empty"><div class="empty-icon">${icon}</div><h3>${title}</h3><p>${detail}</p>${button}</div>`;}
 function table(head,rows,none){return rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr>${head.map(h=>`<th>${E(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`:(none||empty('◇','Noch keine Einträge','Mit „Neuer Eintrag“ beginnen.'));}
@@ -62,8 +73,100 @@ function reportPage(){
 }
 function forecastPage(){return page('Kostenprognose','Was kostet das Haus in den nächsten Jahren? Szenarien statt erfundener Zukunftspreise.',`<button class="btn primary" data-run-forecast>↻ Prognose berechnen</button>`)+`<div class="forecast-grid"><section class="card"><div class="card-head"><div><h2>Szenarien-Vergleich</h2><p>Jahreskosten auf Basis des Abrechnungsjahres ${year}</p></div></div><div id="forecastChart">${empty('⌁','Prognose berechnen','Wählt rechts Eure Annahmen.')}</div></section><section class="card"><h2>Annahmen einstellen</h2><p class="muted tiny">Preise und Verbrauch lassen sich getrennt verändern.</p><div class="form-fields" style="display:grid;gap:18px;margin-top:20px"><div class="field"><label for="priceGrowth">Preissteigerung pro Jahr (%)</label><input id="priceGrowth" type="number" value="3" step="0.5" min="-50" max="100"></div><div class="field"><label for="consumptionGrowth">Verbrauchsänderung pro Jahr (%)</label><input id="consumptionGrowth" type="number" value="0" step="0.5" min="-50" max="100"></div><div class="field"><label for="forecastHorizon">Zeitraum</label><select id="forecastHorizon"><option value="1">1 Jahr</option><option value="3">3 Jahre</option><option value="5" selected>5 Jahre</option><option value="10">10 Jahre</option></select></div><button class="btn secondary" data-run-forecast>Berechnen</button></div><div class="notice info" style="margin-top:20px">Optimistisch = 2 Prozentpunkte weniger Preissteigerung; pessimistisch = 3 Prozentpunkte mehr. Diese Annahmen sind frei wählbar, keine Marktprognose.</div></section></div><section class="card" style="margin-top:20px"><h2>Voraussichtliche Kosten je Haushalt</h2><div id="forecastTable" style="margin-top:18px">${empty('⌁','Noch keine Berechnung','Prognose oben starten.')}</div></section>`;}
 function backupPage(){return page('Datensicherung','Eure Daten gehören Euch – lokal sichern, wiederherstellen und exportieren.',`<a class="btn primary" href="/api/backup">↓ Vollständiges Backup</a>`)+`<div class="two-col"><section class="card"><h2>Lokale Sicherung herunterladen</h2><p class="muted">Eine JSON-Datei mit Stammdaten, Rechnungen, Zahlungen, Zählerständen und PDF-Belegen als eingebettete Daten. Privat aufbewahren!</p><a class="btn primary" style="margin-top:10px" href="/api/backup">Backup erstellen</a></section><section class="card"><h2>Sicherung wiederherstellen</h2><p class="muted">Achtung: Vorhandene Einträge werden vollständig ersetzt. Zuerst ein eigenes Backup herunterladen.</p><div class="field" style="margin:18px 0"><label for="restoreFile">Hauskosten-Backup (.json)</label><input type="file" id="restoreFile" accept=".json,application/json"></div><button class="btn danger" data-restore>Backup einspielen</button></section></div><div class="notice info" style="margin-top:20px">Standardmäßig ist der Server ausschließlich unter 127.0.0.1 erreichbar. Eure Datenbank liegt im Ordner <code>data</code>; für einen vollständigen manuellen Umzug bei beendetem Server kann auch dieser Ordner gesichert werden.</div>`;}
+
+function usersPage(){
+  if(!isAdmin())return page('Kein Zugriff','Diese Funktion steht nur Administratoren zur Verfügung.');
+  const rows=users.map(u=>tr([
+    '<strong>'+E(u.display_name)+'</strong><div class="muted tiny">@'+E(u.username)+'</div>',
+    u.role==='admin'?badge('Administrator'):badge('Mitglied'),
+    u.active?badge('Aktiv','success'):badge('Deaktiviert','error'),
+    '<button class="btn secondary small" data-user-edit="'+u.id+'">Bearbeiten</button>'
+  ]));
+  return page('Benutzerverwaltung','Eigene Zugänge für die Familie. Alle aktiven Mitglieder dürfen die Hauskosten vollständig bearbeiten.')+
+  '<div class="two-col"><section class="card"><div class="card-head"><h2 id="userFormTitle">Benutzer anlegen</h2></div>'+
+  '<form id="manageUserForm" class="admin-form">'+
+  '<input type="hidden" name="id" value="">'+
+  '<div class="field"><label for="newUsername">Benutzername</label><input id="newUsername" name="username" autocomplete="off" minlength="3" maxlength="32" pattern="[a-zA-Z0-9._-]+" required></div>'+
+  '<div class="field"><label for="newDisplayName">Anzeigename</label><input id="newDisplayName" name="display_name" maxlength="80" required></div>'+
+  '<div class="field"><label for="newUserRole">Berechtigung</label><select id="newUserRole" name="role"><option value="user">Mitglied (alle Hausdaten bearbeiten)</option><option value="admin">Administrator (zusätzlich Nutzer & Einstellungen)</option></select></div>'+
+  '<div class="field"><label for="newUserActive">Status</label><select id="newUserActive" name="active"><option value="true">Aktiv</option><option value="false">Deaktiviert</option></select></div>'+
+  '<div class="field"><label for="newUserPassword">Passwort</label><input id="newUserPassword" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><div class="help">Mindestens 12 Zeichen. Beim Bearbeiten leer lassen, wenn das Passwort unverändert bleiben soll.</div></div>'+
+  '<div class="admin-actions"><button class="btn primary" type="submit" id="saveUserButton">Benutzer anlegen</button> <button class="btn secondary" type="button" data-user-new>Zurücksetzen</button></div></form></section>'+
+  '<section class="card"><div class="card-head"><h2>Benutzerkonten</h2>'+badge(String(users.length)+' Konten')+'</div>'+
+  table(['Person','Rolle','Status','Aktion'],rows,empty('♙','Noch keine weiteren Benutzer','Erstellt links einen Zugang.'))+
+  '<p class="muted tiny" style="margin-top:18px">Der letzte aktive Administrator kann nicht deaktiviert werden. Beim Passwortwechsel werden bestehende Sitzungen dieses Benutzers beendet.</p></section></div>';
+}
+function settingsPage(){
+  if(!isAdmin())return page('Kein Zugriff','Diese Funktion steht nur Administratoren zur Verfügung.');
+  return page('Hauseinstellungen','Die Hausbezeichnung wird auf der Startseite, bei der Anmeldung und in PDF-Abrechnungen verwendet.')+
+  '<section class="card setting-card"><h2>Hausbezeichnung</h2>'+
+  '<form id="houseSettingsForm" class="admin-form">'+
+  '<div class="field"><label for="houseTitleField">Titel Eures Hauses</label>'+
+  '<input id="houseTitleField" name="house_title" minlength="2" maxlength="100" required value="'+E(houseTitle)+'">'+
+  '<div class="help">Beispielsweise „Villa Kunterbunt“, „Haus am Garten“ oder eine eigene Bezeichnung.</div></div>'+
+  '<button class="btn primary" type="submit">Haustitel speichern</button></form></section>';
+}
+function profilePage(){
+  return page('Mein Konto','Hier könnt Ihr Euer eigenes Passwort ändern.')+
+  '<section class="card setting-card"><h2>'+E(account?.display_name||'Konto')+'</h2>'+
+  '<p class="muted">Benutzer: '+E(account?.username||'')+' · '+(isAdmin()?'Administrator':'Mitglied')+'</p>'+
+  '<form id="changePasswordForm" class="admin-form">'+
+  '<div class="field"><label for="oldPassword">Bisheriges Passwort</label><input id="oldPassword" name="current_password" type="password" autocomplete="current-password" required></div>'+
+  '<div class="field"><label for="newPassword">Neues Passwort</label><input id="newPassword" name="new_password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></div>'+
+  '<button class="btn primary" type="submit">Passwort ändern</button></form></section>';
+}
+function editUser(id){
+  const u=users.find(x=>x.id===id);
+  if(!u)return;
+  go('users');
+  const form=$('manageUserForm');
+  form.elements.id.value=String(u.id);
+  form.elements.username.value=u.username;
+  form.elements.username.readOnly=true;
+  form.elements.display_name.value=u.display_name;
+  form.elements.role.value=u.role;
+  form.elements.active.value=String(Boolean(u.active));
+  form.elements.password.value='';
+  form.elements.password.required=false;
+  $('userFormTitle').textContent='Benutzer bearbeiten: '+u.username;
+  $('saveUserButton').textContent='Änderungen speichern';
+  form.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function newUserForm(){
+  const form=$('manageUserForm');
+  if(!form)return;
+  form.reset();
+  form.elements.id.value='';
+  form.elements.username.readOnly=false;
+  form.elements.password.required=true;
+  $('userFormTitle').textContent='Benutzer anlegen';
+  $('saveUserButton').textContent='Benutzer anlegen';
+}
+async function saveManagedUser(form){
+  const fd=new FormData(form),editId=fd.get('id');
+  const data={username:fd.get('username'),display_name:fd.get('display_name'),role:fd.get('role'),active:fd.get('active')==='true'};
+  const password=fd.get('password');
+  if(password)data.password=password;
+  if(!editId&&!password)throw new Error('Bitte ein Startpasswort mit mindestens 12 Zeichen eingeben.');
+  await api('/api/users'+(editId?'/'+editId:''),{method:editId?'PATCH':'POST',body:JSON.stringify(data)});
+  notify(editId?'Benutzer aktualisiert.':'Benutzer erstellt.');
+  await refresh();
+}
+async function submitHouseSettings(form){
+  const value=new FormData(form).get('house_title');
+  const result=await api('/api/settings',{method:'PATCH',body:JSON.stringify({house_title:value})});
+  houseTitle=result.house_title;
+  updateHouseShell();render();
+  notify('Haustitel gespeichert.');
+}
+async function submitOwnPassword(form){
+  const values=Object.fromEntries(new FormData(form));
+  await api('/api/auth/password',{method:'POST',body:JSON.stringify(values)});
+  form.reset();notify('Passwort geändert. Andere Sitzungen dieses Benutzers wurden beendet.');
+}
+
 function render(){
-  root.innerHTML=({dashboard,households,meters,tariffs,invoices,payments,report:reportPage,forecast:forecastPage,backup:backupPage}[view]||dashboard)();
+  root.innerHTML=({dashboard,households,meters,tariffs,invoices,payments,report:reportPage,forecast:forecastPage,backup:backupPage,users:usersPage,settings:settingsPage,profile:profilePage}[view]||dashboard)();
   if(view==='forecast')runForecast().catch(e=>notify(e.message,true));
 }
 function optionHTML(options,selected){return options.map(o=>`<option value="${E(o.value)}" ${String(selected)===String(o.value)?'selected':''}>${E(o.label)}</option>`).join('');}
@@ -147,6 +250,8 @@ function register(){
  $('yearPick').addEventListener('change',e=>{year=Number(e.target.value);refresh();});
  document.addEventListener('click',async e=>{
    const target=e.target.closest('button,a');if(!target)return;
+   if(target.dataset.userEdit){editUser(Number(target.dataset.userEdit));return;}
+   if(target.dataset.userNew!==undefined){newUserForm();return;}
    if(target.dataset.nav){go(target.dataset.nav);return;}
    if(target.dataset.add){openModal(target.dataset.add,{meter_id:target.dataset.meter});return;}
    if(target.dataset.del){await removeEntry(target.dataset.del,Number(target.dataset.id));return;}
@@ -159,6 +264,16 @@ function register(){
    if(target.dataset.runForecast){runForecast().catch(err=>notify(err.message,true));return;}
    if(target.dataset.restore!==undefined){await restoreData();return;}
    if(target.dataset.demo!==undefined){if(confirm('Nur fiktive Beispieldaten laden? Dies ist nur möglich, wenn die Datenbank noch leer ist.'))try{await api('/api/demo',{method:'POST',body:'{}'});notify('Demodaten für 2026 geladen.');year=2026;$('yearPick').value='2026';await refresh();}catch(e){notify(e.message,true);}return;}
+ });
+ document.addEventListener('submit',async event=>{
+   const form=event.target;
+   if(!['manageUserForm','houseSettingsForm','changePasswordForm'].includes(form.id))return;
+   event.preventDefault();
+   try{
+     if(form.id==='manageUserForm')await saveManagedUser(form);
+     else if(form.id==='houseSettingsForm')await submitHouseSettings(form);
+     else await submitOwnPassword(form);
+   }catch(error){notify(error.message,true);}
  });
  $('formFields').addEventListener('change',updateModalFields);
  $('entryForm').addEventListener('submit',formSubmit);
