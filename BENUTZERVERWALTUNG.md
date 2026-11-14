@@ -23,7 +23,7 @@ Die Rechte werden **am Server geprüft** (nicht nur durch das Ausblenden der Nav
 
 1. Als `hom` anmelden.
 2. **System → Benutzerverwaltung** öffnen.
-3. Benutzername (3–32 Zeichen, klein geschrieben), Anzeigename, Rolle und Startpasswort (mindestens 12 Zeichen) festlegen.
+3. Benutzername (3–32 Zeichen, klein geschrieben), Anzeigename, Rolle und Startpasswort (mindestens 10 Zeichen) festlegen.
 4. **Benutzer anlegen** wählen.
 5. Anmeldedaten dem Familienmitglied sicher mitteilen. Es kann sein Passwort anschließend unter **Mein Konto** ändern.
 
@@ -35,7 +35,7 @@ Als Administrator **System → Hauseinstellungen** öffnen, neuen Titel eintrage
 
 ## Sicherheit
 
-- Passwort-Hashes: bcrypt (mindestens 12 Zeichen bei neuen Passwörtern).
+- Passwort-Hashes: bcrypt (mindestens 10 Zeichen bei neuen Passwörtern).
 - Sitzungstokens werden zufällig erzeugt und nur gehasht in SQLite gespeichert.
 - Browser-Cookies: `HttpOnly`, `Secure`, `SameSite=Strict`; optional 30 Tage angemeldet bleiben.
 - Nur lokal im Heimnetz, über Caddy mit HTTPS und ohne öffentlichen Router-Port.
