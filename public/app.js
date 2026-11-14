@@ -155,7 +155,7 @@ function usersPage(){
   '<div class="field"><label for="newDisplayName">Anzeigename</label><input id="newDisplayName" name="display_name" maxlength="80" required></div>'+
   '<div class="field"><label for="newUserRole">Berechtigung</label><select id="newUserRole" name="role"><option value="user">Mitglied (alle Hausdaten bearbeiten)</option><option value="admin">Administrator (zusätzlich Nutzer & Einstellungen)</option></select></div>'+
   '<div class="field"><label for="newUserActive">Status</label><select id="newUserActive" name="active"><option value="true">Aktiv</option><option value="false">Deaktiviert</option></select></div>'+
-  '<div class="field"><label for="newUserPassword">Passwort</label><input id="newUserPassword" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><div class="help">Mindestens 12 Zeichen. Beim Bearbeiten leer lassen, wenn das Passwort unverändert bleiben soll.</div></div>'+
+  '<div class="field"><label for="newUserPassword">Passwort</label><input id="newUserPassword" name="password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required><div class="help">Mindestens 10 Zeichen. Beim Bearbeiten leer lassen, wenn das Passwort unverändert bleiben soll.</div></div>'+
   '<div class="admin-actions"><button class="btn primary" type="submit" id="saveUserButton">Benutzer anlegen</button> <button class="btn secondary" type="button" data-user-new>Zurücksetzen</button></div></form></section>'+
   '<section class="card"><div class="card-head"><h2>Benutzerkonten</h2>'+badge(String(users.length)+' Konten')+'</div>'+
   table(['Person','Rolle','Status','Aktion'],rows,empty('♙','Noch keine weiteren Benutzer','Erstellt links einen Zugang.'))+
@@ -177,7 +177,7 @@ function profilePage(){
   '<p class="muted">Benutzer: '+E(account?.username||'')+' · '+(isAdmin()?'Administrator':'Mitglied')+'</p>'+
   '<form id="changePasswordForm" class="admin-form">'+
   '<div class="field"><label for="oldPassword">Bisheriges Passwort</label><input id="oldPassword" name="current_password" type="password" autocomplete="current-password" required></div>'+
-  '<div class="field"><label for="newPassword">Neues Passwort</label><input id="newPassword" name="new_password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></div>'+
+  '<div class="field"><label for="newPassword">Neues Passwort</label><input id="newPassword" name="new_password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></div>'+
   '<button class="btn primary" type="submit">Passwort ändern</button></form></section>';
 }
 function editUser(id){
@@ -211,7 +211,7 @@ async function saveManagedUser(form){
   const data={username:fd.get('username'),display_name:fd.get('display_name'),role:fd.get('role'),active:fd.get('active')==='true'};
   const password=fd.get('password');
   if(password)data.password=password;
-  if(!editId&&!password)throw new Error('Bitte ein Startpasswort mit mindestens 12 Zeichen eingeben.');
+  if(!editId&&!password)throw new Error('Bitte ein Startpasswort mit mindestens 10 Zeichen eingeben.');
   await api('/api/users'+(editId?'/'+editId:''),{method:editId?'PATCH':'POST',body:JSON.stringify(data)});
   notify(editId?'Benutzer aktualisiert.':'Benutzer erstellt.');
   await refresh();
