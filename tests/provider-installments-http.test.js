@@ -38,18 +38,19 @@ test('HTTP: Internetvertrag, monatliche Anbieter-Abschläge, Erhöhung und Siche
  const july=x.value.entries.find(e=>e.tariff_id===tariffId&&e.date==='2026-07-31');
  assert.equal(july.amount_cents,4495);
  x=await req('/api/report?year=2026');assert.equal(x.status,200);
- assert.equal(x.value.totals.cost_cents,0);assert.equal(x.value.totals.paid_cents,0);
+ assert.equal(x.value.totals.cost_cents,12*3995);assert.equal(x.value.totals.paid_cents,0);
  assert.equal(x.value.provider_installment_entries.length,12);
  const sum=6*3995+4495+5*4995;
  assert.equal(x.value.provider_installment_totals.planned_cents,sum);
  x=await req('/api/invoices','POST',{provider:'Telekom Festnetz',invoice_number:'I-001',kind:'internet',
    period_start:'2026-01-01',period_end:'2026-01-31',amount_eur:'39.95',distribution:'area',common_key:'area'});
  assert.equal(x.status,201);
- x=await req('/api/report?year=2026');assert.equal(x.value.totals.cost_cents,3995);
+ x=await req('/api/report?year=2026');assert.equal(x.value.totals.cost_cents,12*3995);
  assert.equal(x.value.totals.paid_cents,0);
  const b=await fetch(base+'/api/backup');assert.equal(b.status,200);const backup=await b.json();
  assert.equal(backup.tables.provider_installments.length,3);
  assert.equal(backup.tables.tariffs[0].kind,'internet');
+ assert.equal(backup.tables.tariffs[0].recurring_cost_mode,'fixed_monthly');
  // Restore darf frühere Backups ohne die neue Tabelle weiterhin einlesen.
  delete backup.tables.provider_installments;
  x=await req('/api/restore','POST',{...backup,confirm:'RESTORE'});assert.equal(x.status,200);
