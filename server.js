@@ -55,6 +55,7 @@ function validate(table,v) {
  }
  case 'tariffs':{
    const category=kind(v.kind),gas=category==='gas'?gasFactors(v):{gas_calorific_kwh_m3:null,gas_condition_factor:null};
+   if(category==='gas'&&!gas.gas_calorific_kwh_m3)fail('Beim neuen Gastarif bitte Brennwert und Zustandszahl eintragen.');
    const contractStart=optionalDate(v.contract_start,'Vertragsbeginn');
    const contractEnd=optionalDate(v.contract_end,'Vertragsende');
    const deadline=optionalDate(v.cancellation_deadline,'Kündigungstermin');
@@ -285,7 +286,11 @@ async function handle(req,res){
          const sheets={
            Abrechnung:[['Jahr',year],[],['Haushalt','Wohnfläche m²','Personen','Kosten EUR','Abschläge EUR','Saldo EUR'],...r.households.map(h=>[h.name,h.area_m2,h.occupants,h.cost_cents/100,h.paid_cents/100,h.balance_cents/100]),[],['Gesamt','','',r.totals.cost_cents/100,r.totals.paid_cents/100,r.totals.balance_cents/100]],
            Rechnungen:[['Rechnung','Lieferant','Kostenart','Von','Bis','Betrag EUR'],...r.invoices.map(i=>[i.id,i.provider,i.kind,i.period_start,i.period_end,i.amount_cents/100])],
-           Hinweise:[['Abrechnung',year],['Hinweis','Rechnungen werden dem Jahr des Perioden-Enddatums zugeordnet.'],...r.warnings.map(w=>['Warnung',w])]
+           Hinweise:[['Abrechnung',year],['Hinweis','Rechnungen werden dem Jahr des Perioden-Enddatums zugeordnet.'],...(r.assumptions||[]).map(w=>['Dauerauftrag',w]),...r.warnings.map(w=>['Warnung',w])],
+           Gasumrechnung:[['Rechnung','Versorger','Von','Bis','Brennwert kWh/m³','Zustandszahl','m³','kWh'],
+             ...r.invoices.filter(i=>i.gas).map(i=>[i.id,i.provider,i.period_start,i.period_end,i.gas.calorific_kwh_m3,i.gas.condition_factor,i.gas.total_volume_m3,i.gas.total_energy_kwh])],
+           Dauerauftraege:[['Datum','Haushalt-ID','Abschlag EUR','Hinweis'],
+             ...(r.standing_order_entries||[]).map(e=>[e.date,e.household_id,e.amount_cents/100,'Planmäßig, nicht bankbestätigt'])]
          };
          return download(res,`Hauskosten-${year}.xlsx`,createXlsx(sheets),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
        }
@@ -295,10 +300,16 @@ async function handle(req,res){
        const sections=[{text:`${houseTitle()} – Jahresabrechnung ${year}`,size:14,bold:true,gap:35},...pdfHouseholds.flatMap(h=>[
          {text:h.name,size:13,bold:true},{text:`Kosten: ${euro(h.cost_cents)} EUR | Abschlaege: ${euro(h.paid_cents)} EUR | Saldo: ${euro(h.balance_cents)} EUR`,size:11},
          ...Object.entries(h.by_kind).map(([k,v])=>({text:`   ${k}: ${euro(v)} EUR`,size:10,gap:17})),
-         ...(householdId?r.invoices.filter(i=>i.shares[h.id]>0).map(i=>({text:`   Rechnung ${i.id}: ${i.provider}, ${i.kind}, ${euro(i.shares[h.id])} EUR`,size:9,gap:17})):[]),
+         ...(householdId?r.invoices.filter(i=>i.shares[h.id]>0).flatMap(i=>[
+         {text:`   Rechnung ${i.id}: ${i.provider}, ${i.kind}, ${euro(i.shares[h.id])} EUR`,size:9,gap:17},
+         ...(i.gas?.households?.find(g=>g.id===h.id)?[
+           {text:`   Gas: ${i.gas.households.find(g=>g.id===h.id).volume_m3.toFixed(3)} m3 = ${i.gas.households.find(g=>g.id===h.id).energy_kwh.toFixed(3)} kWh (Brennwert ${i.gas.calorific_kwh_m3}, Zustandszahl ${i.gas.condition_factor})`,size:9,gap:17}
+         ]:[])
+       ]):[]),
          {text:'',gap:12}
        ]),{text:householdId?`Haushalt gesamt: ${euro(pdfHouseholds[0].cost_cents)} EUR | Abschlaege: ${euro(pdfHouseholds[0].paid_cents)} EUR`:`Gesamt: ${euro(r.totals.cost_cents)} EUR | Abschlaege: ${euro(r.totals.paid_cents)} EUR`,size:12,bold:true},
-         {text:'Die Aufteilung erfolgt gemaess den gespeicherten Umlageschluesseln. Rechnungen gehoeren zum Jahr ihres Perioden-Enddatums.',size:9},...r.warnings.map(w=>({text:`ACHTUNG: ${w}`,size:9}))];
+         {text:'Die Aufteilung erfolgt gemaess den gespeicherten Umlageschluesseln. Rechnungen gehoeren zum Jahr ihres Perioden-Enddatums.',size:9},
+         ...(r.assumptions||[]).map(a=>({text:a.replaceAll('ä','ae').replaceAll('ö','oe').replaceAll('ü','ue'),size:9})),...r.warnings.map(w=>({text:`ACHTUNG: ${w}`,size:9}))];
        return download(res,`Hauskosten-${year}${householdId?'-Haushalt-'+householdId:''}.pdf`,linesToPdf(houseTitle(),sections),'application/pdf');
      }
      if(req.method==='GET'&&p==='/api/backup'){
@@ -310,7 +321,9 @@ async function handle(req,res){
      if(req.method==='POST'&&p==='/api/restore'){
        const body=await parseBody(req,40*1024*1024);
        if(body.confirm!=='RESTORE'||body.format!=='hauskosten-backup-v1'||!body.tables||!body.files)fail('Ungültiges Sicherungsformat oder Bestätigung.');
-       const keys=['households','meters','readings','tariffs','invoices','payments'];
+       // Alte Backups ohne Daueraufträge bleiben wiederherstellbar.
+       if(!body.tables.standing_orders)body.tables.standing_orders=[];
+       const keys=['households','meters','readings','tariffs','invoices','payments','standing_orders'];
        for(const key of keys)if(!Array.isArray(body.tables[key])||body.tables[key].length>30000)fail('Ungültige Sicherungstabelle: '+key);
        const attachmentFiles={};
        for(const [name,data] of Object.entries(body.files)){
