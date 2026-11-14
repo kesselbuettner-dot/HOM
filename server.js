@@ -6,7 +6,7 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {db,all,insert,del,snapshot,atomic,dataPath}=require('./src/db');
 const {parseMoney,positiveNumber,euro}=require('./src/money');
-const {validDate,yearReport,forecast}=require('./src/calc');
+const {validDate,yearReport,forecast,standingOrderEntries,contractAlerts}=require('./src/calc');
 const {createXlsx}=require('./src/xlsx');
 const {linesToPdf}=require('./src/pdf');
 const auth=require('./src/auth');
@@ -28,19 +28,46 @@ function kind(v){if(!kinds.includes(v))fail('Ungültige Kostenart.');return v;}
 function real(v,label,max=100000000){const n=positiveNumber(v,label);if(n>max)fail(`${label} zu groß.`);return n;}
 function assertRef(table,v){const n=id(v);if(!db.prepare(`SELECT id FROM ${table} WHERE id=?`).get(n))fail(`Datensatz in ${table} nicht gefunden.`);return n;}
 function optRef(table,v){return v===null||v===undefined||v===''?null:assertRef(table,v);}
+function optionalDate(v,label){return v===null||v===undefined||v===''?null:day(v,label);}
+function gasFactors(v){
+  const calorific=v.gas_calorific_kwh_m3,condition=v.gas_condition_factor;
+  if((calorific==null||calorific==='')&&(condition==null||condition===''))
+    return {gas_calorific_kwh_m3:null,gas_condition_factor:null};
+  if(calorific==null||calorific===''||condition==null||condition==='')
+    fail('Für Gas müssen Brennwert und Zustandszahl gemeinsam hinterlegt werden.');
+  const a=real(calorific,'Brennwert',30),b=real(condition,'Zustandszahl',2);
+  if(a<1||b<0.1)fail('Brennwert oder Zustandszahl unplausibel.');
+  return {gas_calorific_kwh_m3:a,gas_condition_factor:b};
+}
 function validate(table,v) {
  switch(table){
  case 'households':return {name:text(v.name,'Haushaltsname',100),area_m2:real(v.area_m2,'Wohnfläche',100000),occupants:Math.floor(real(v.occupants,'Personenzahl',1000)),active:v.active===false||v.active==='0'?0:1};
  case 'meters':{
    const role=v.role==='main'?'main':'sub'; const assigned=role==='main'?null:assertRef('households',v.household_id);
-   return {code:text(v.code,'Zählernummer',80),name:text(v.name,'Zählername',100),kind:kind(v.kind),unit:text(v.unit,'Einheit',16),role,household_id:assigned,multiplier:real(v.multiplier||1,'Zählerfaktor',1000000),active:v.active===false||v.active==='0'?0:1};
+   const category=kind(v.kind),unit=text(v.unit,'Einheit',16);
+   if(category==='gas'&&unit!=='m³')fail('Gaszähler werden in m³ abgelesen; bitte m³ wählen.');
+   return {code:text(v.code,'Zählernummer',80),name:text(v.name,'Zählername',100),kind:category,unit,role,household_id:assigned,multiplier:real(v.multiplier||1,'Zählerfaktor',1000000),active:v.active===false||v.active==='0'?0:1};
  }
  case 'readings':{
    const r=real(v.value,'Zählerstand',1e12);const scaled=Math.round(r*1000);
    if(!Number.isSafeInteger(scaled))fail('Zählerstand ist zu groß.');
    return {meter_id:assertRef('meters',v.meter_id),date:day(v.date,'Ablesedatum'),value_milli:scaled,note:text(v.note,'Bemerkung',500,false)};
  }
- case 'tariffs':return {kind:kind(v.kind),provider:text(v.provider,'Versorger',120),valid_from:day(v.valid_from,'Gültig ab'),unit_price_eur:real(v.unit_price_eur,'Arbeitspreis',10000),base_month_eur:real(v.base_month_eur,'Grundpreis',100000),note:text(v.note,'Bemerkung',500,false)};
+ case 'tariffs':{
+   const category=kind(v.kind),gas=category==='gas'?gasFactors(v):{gas_calorific_kwh_m3:null,gas_condition_factor:null};
+   const contractStart=optionalDate(v.contract_start,'Vertragsbeginn');
+   const contractEnd=optionalDate(v.contract_end,'Vertragsende');
+   const deadline=optionalDate(v.cancellation_deadline,'Kündigungstermin');
+   if(contractStart&&contractEnd&&contractStart>contractEnd)fail('Vertragsbeginn liegt nach Vertragsende.');
+   if(deadline&&contractEnd&&deadline>contractEnd)fail('Kündigungstermin darf nicht nach dem Vertragsende liegen.');
+   const days=v.reminder_days===null||v.reminder_days===undefined||v.reminder_days===''?42:Number(v.reminder_days);
+   if(!Number.isSafeInteger(days)||days<0||days>365)fail('Erinnerungsvorlauf muss zwischen 0 und 365 Tagen liegen.');
+   return {kind:category,provider:text(v.provider,'Versorger',120),valid_from:day(v.valid_from,'Gültig ab'),
+     unit_price_eur:real(v.unit_price_eur,'Arbeitspreis',10000),base_month_eur:real(v.base_month_eur,'Grundpreis',100000),
+     ...gas,contract_start:contractStart,contract_end:contractEnd,cancellation_deadline:deadline,
+     reminder_days:days,cancellation_done:v.cancellation_done===true||v.cancellation_done==='1'?1:0,
+     note:text(v.note,'Bemerkung',500,false)};
+ }
  case 'invoices':{
    const start=day(v.period_start,'Zeitraum von'),end=day(v.period_end,'Zeitraum bis');if(start>end)fail('Rechnungszeitraum ist umgekehrt.');
    const distribution=distributions.includes(v.distribution)?v.distribution:null;if(!distribution)fail('Ungültiger Umlageschlüssel.');
@@ -50,9 +77,35 @@ function validate(table,v) {
      if(typeof incoming!=='object'||Array.isArray(incoming)||incoming===null)fail('Individuelle Gewichte müssen ein Objekt sein.');
      for (const [key,value] of Object.entries(incoming)){if(!/^\d+$/.test(key))fail('Ungültiger Haushaltschlüssel.');assertRef('households',key);custom[key]=real(value,'Individuelles Gewicht',1000000);}
    }
-   return {provider:text(v.provider,'Rechnungssteller',150),invoice_number:text(v.invoice_number,'Rechnungsnummer',100,false),kind:kind(v.kind),period_start:start,period_end:end,amount_cents:parseMoney(v.amount_eur),distribution,common_key:ck,household_id:optRef('households',v.household_id),custom_weights:JSON.stringify(custom),note:text(v.note,'Bemerkung',1000,false)};
+   const category=kind(v.kind),gasTariffId=category==='gas'?optRef('tariffs',v.gas_tariff_id):null;
+   let factors={gas_calorific_kwh_m3:null,gas_condition_factor:null};
+   if(gasTariffId){
+     const tariff=db.prepare('SELECT * FROM tariffs WHERE id=?').get(gasTariffId);
+     if(tariff.kind!=='gas')fail('Ausgewählter Tarif ist kein Gastarif.');
+     if(tariff.valid_from>end)fail('Der Gastarif beginnt erst nach dem Rechnungszeitraum.');
+     factors=gasFactors(tariff);
+   }
+   if(category==='gas'&&distribution==='meter'&&!v.household_id&&!gasTariffId)
+     fail('Für eine neue Gasabrechnung nach Zählerständen bitte den Gastarif mit Brennwert/Zustandszahl auswählen.');
+   if(gasTariffId&&!factors.gas_calorific_kwh_m3)
+     fail('Im ausgewählten Gastarif fehlen Brennwert und Zustandszahl.');
+   return {provider:text(v.provider,'Rechnungssteller',150),invoice_number:text(v.invoice_number,'Rechnungsnummer',100,false),kind:category,
+     period_start:start,period_end:end,amount_cents:parseMoney(v.amount_eur),distribution,common_key:ck,
+     household_id:optRef('households',v.household_id),custom_weights:JSON.stringify(custom),
+     gas_tariff_id:gasTariffId,...factors,note:text(v.note,'Bemerkung',1000,false)};
  }
  case 'payments':return {household_id:assertRef('households',v.household_id),date:day(v.date,'Zahlungsdatum'),amount_cents:parseMoney(v.amount_eur),note:text(v.note,'Bemerkung',300,false)};
+ case 'standing_orders':{
+   const from=day(v.valid_from,'Gültig ab'),until=optionalDate(v.valid_until,'Gültig bis');
+   if(from.slice(8)!=='01')fail('Dauerauftrag beginnt am ersten Kalendertag des Gültigkeitsmonats.');
+   if(until&&until.slice(0,7)<from.slice(0,7))fail('Das Ende liegt vor dem Beginn.');
+   const due=Number(v.day_of_month);
+   if(!Number.isSafeInteger(due)||due<1||due>31)fail('Abbuchtungstag muss zwischen 1 und 31 liegen.');
+   const amount=parseMoney(v.amount_eur);
+   if(amount<=0)fail('Der monatliche Abschlag muss positiv sein.');
+   return {household_id:assertRef('households',v.household_id),valid_from:from,valid_until:until,
+     day_of_month:due,amount_cents:amount,note:text(v.note,'Bemerkung',300,false)};
+ }
  default:fail('Unbekannter Datentyp.');
  }
 }
@@ -81,7 +134,7 @@ function demo(){
    const b=insert('households',{name:'Wohnung Obergeschoss',area_m2:112,occupants:3,active:1});
    const c=insert('households',{name:'Einliegerwohnung',area_m2:58,occupants:1,active:1});
    let idx=0;
-   for(const [k,unit,base,values] of [['strom','kWh',18000,[6500,8000,2500]],['wasser','m³',380000,[120000,160000,80000]],['gas','kWh',50000000,[18000000,22000000,8000000]]]){
+   for(const [k,unit,base,values] of [['strom','kWh',18000,[6500,8000,2500]],['wasser','m³',380000,[120000,160000,80000]],['gas','m³',5000000,[1800000,2200000,800000]]]){
      const main=insert('meters',{code:`DEMO-${++idx}`,name:`${k} Hauptzähler`,kind:k,unit,role:'main',household_id:null,multiplier:1,active:1});
      for(const [date,val] of [['2026-01-01',0],['2026-12-31',base]])insert('readings',{meter_id:main,date,value_milli:val,note:'Beispielwert'});
      [a,b,c].forEach((h,i)=>{
@@ -150,6 +203,34 @@ async function handle(req,res){
    }
    if(p.startsWith('/api/')){
      const user=auth.currentUser(db,req);
+     if(req.method==='GET'&&p==='/api/contracts/alerts')return send(res,200,{alerts:contractAlerts(all('tariffs'))});
+     if(req.method==='GET'&&p==='/api/standing-orders/preview'){
+       const y=Number(u.searchParams.get('year')||YEAR);
+       if(!Number.isInteger(y)||y<2000||y>2200)fail('Ungültiges Jahr.');
+       return send(res,200,{entries:standingOrderEntries(all('standing_orders'),all('payments'),y,{dueOnly:false})});
+     }
+     if(req.method==='POST'&&p==='/api/standing-orders'){
+       const body=await parseBody(req),clean=validate('standing_orders',body);
+       const changeMonth=clean.valid_from.slice(0,7);
+       const newEndMonth=clean.valid_until?.slice(0,7)||'9999-12';
+       const existing=db.prepare('SELECT * FROM standing_orders WHERE household_id=? ORDER BY valid_from').all(clean.household_id);
+       // Feste Monatsintervalle, also kein überlappender Abschlag für einen Haushalt.
+       for(const old of existing){
+         const a=old.valid_from.slice(0,7),b=old.valid_until?.slice(0,7)||'9999-12';
+         if(a>=changeMonth&&a<=newEndMonth)
+           fail('Ab diesem Monat existiert schon ein Dauerauftrag. Bitte einen späteren Monat wählen oder den zukünftigen Eintrag löschen.');
+       }
+       const prevMonthEnd=new Date(Date.UTC(Number(changeMonth.slice(0,4)),Number(changeMonth.slice(5,7))-1,0)).toISOString().slice(0,10);
+       const newId=atomic(()=>{
+         for(const old of existing){
+           const b=old.valid_until?.slice(0,7)||'9999-12';
+           if(old.valid_from.slice(0,7)<changeMonth&&b>=changeMonth)
+             db.prepare('UPDATE standing_orders SET valid_until=? WHERE id=?').run(prevMonthEnd,old.id);
+         }
+         return insert('standing_orders',clean);
+       });
+       return send(res,201,{ok:true,id:newId});
+     }
      if(req.method==='GET'&&p==='/api/auth/me')
        return send(res,200,{user:auth.publicUser(user),auth_enabled:auth.enabled,house_title:houseTitle()});
      if(req.method==='POST'&&p==='/api/auth/password'){
@@ -249,7 +330,7 @@ async function handle(req,res){
        for(const [name,data] of Object.entries(attachmentFiles))fs.writeFileSync(path.join(dataPath,'attachments',name),data);
        return send(res,200,{ok:true});
      }
-     const match=p.match(/^\/api\/(households|meters|readings|tariffs|invoices|payments)(?:\/(\d+))?$/);
+     const match=p.match(/^\/api\/(households|meters|readings|tariffs|invoices|payments|standing_orders)(?:\/(\d+))?$/);
      if(match){
        const table=match[1],entryId=match[2]?id(match[2]):null;
        if(req.method==='GET'&&!entryId)return send(res,200,all(table));
@@ -259,7 +340,7 @@ async function handle(req,res){
          if(inv?.attachment_file){try{fs.unlinkSync(path.join(dataPath,'attachments',path.basename(inv.attachment_file)));}catch{}}
          return send(res,200,{ok:true});
        }
-       if(req.method==='POST'&&!entryId){
+       if(req.method==='POST'&&!entryId&&table!=='standing_orders'){
          const body=await parseBody(req);
          const clean=validate(table,body);
          if(table==='invoices'&&clean.invoice_number){
@@ -270,7 +351,7 @@ async function handle(req,res){
          if(table==='invoices'&&body.attachment){try{attachment(newId,body.attachment);}catch(e){del('invoices',newId);throw e;}}
          return send(res,201,{ok:true,id:newId});
        }
-       if(req.method==='PATCH'&&entryId){
+       if(req.method==='PATCH'&&entryId&&table!=='standing_orders'){
          const existing=db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(entryId);
          if(!existing)fail('Nicht gefunden.',404);
          const body=await parseBody(req);
