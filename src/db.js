@@ -43,6 +43,27 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `);
+function addMissingColumns(table,definitions){
+  const known=new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(row=>row.name));
+  for(const [name,definition] of Object.entries(definitions)) {
+    if(!known.has(name))db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  }
+}
+// Additive Schema-Migration – bestehende Beträge, Zählerstände und Benutzer bleiben unverändert.
+addMissingColumns('tariffs',{
+  gas_calorific_kwh_m3:'REAL',
+  gas_condition_factor:'REAL',
+  contract_start:'TEXT',
+  contract_end:'TEXT',
+  cancellation_deadline:'TEXT',
+  reminder_days:'INTEGER NOT NULL DEFAULT 42',
+  cancellation_done:'INTEGER NOT NULL DEFAULT 0'
+});
+addMissingColumns('invoices',{
+  gas_calorific_kwh_m3:'REAL',
+  gas_condition_factor:'REAL',
+  gas_tariff_id:'INTEGER'
+});
 function all(table) {
   const valid=['households','meters','readings','tariffs','invoices','payments','settings'];
   if (!valid.includes(table)) throw new Error('Ungültige Tabelle.');
