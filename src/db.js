@@ -80,7 +80,9 @@ addMissingColumns('tariffs',{
   reminder_days:'INTEGER NOT NULL DEFAULT 42',
   cancellation_done:'INTEGER NOT NULL DEFAULT 0',
   paperless_document_id:'INTEGER',
-  billing_frequency:"TEXT NOT NULL DEFAULT 'annual'"
+  billing_frequency:"TEXT NOT NULL DEFAULT 'annual'",
+  recurring_cost_mode:"TEXT NOT NULL DEFAULT 'invoice'",
+  recurring_distribution:"TEXT NOT NULL DEFAULT 'area'"
 });
 addMissingColumns('invoices',{
   gas_calorific_kwh_m3:'REAL',
