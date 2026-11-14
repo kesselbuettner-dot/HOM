@@ -147,10 +147,40 @@ function allocInvoice(invoice, households, meters, readings) {
   if (weights.reduce((s,[,w])=>s+w,0) <= 0) throw new Error('Die Umlage hat keine positiven Gewichte.');
   return { shares:splitCents(invoice.amount_cents,weights), notes, method:invoice.distribution,gas:gasDetails };
 }
+/** Monatliche Festpreise: automatisch als Kosten verteilbar, keine Abschläge.
+ * Eine ausdrücklich erfasste Anbieterrechnung hat für überlappende Monate Vorrang. */
+function monthlyContractInvoices(year,tariffs=[],manualInvoices=[]){
+  const output=[],suppressed=[];
+  for(let month=1;month<=12;month++){
+    const ym=year+'-'+String(month).padStart(2,'0');
+    const start=ym+'-01',end=ym+'-'+String(monthEnd(year,month)).padStart(2,'0');
+    const candidates=(tariffs||[]).filter(t=>t.valid_from<=start&&
+      (!t.contract_start||t.contract_start<=start)&&(!t.contract_end||t.contract_end>=end));
+    const byContract=new Map();
+    for(const tariff of candidates.sort((a,b)=>a.valid_from.localeCompare(b.valid_from)||Number(a.id)-Number(b.id))){
+      byContract.set(tariff.kind+':'+String(tariff.provider).trim().toLowerCase(),tariff);
+    }
+    for(const tariff of byContract.values()){
+      if(tariff.recurring_cost_mode!=='fixed_monthly')continue;
+      const amount=Math.round(Number(tariff.base_month_eur)*100);
+      if(!Number.isSafeInteger(amount)||amount<=0)continue;
+      const overlap=manualInvoices.some(inv=>inv.kind===tariff.kind&&
+        String(inv.provider).trim().toLowerCase()===String(tariff.provider).trim().toLowerCase()&&
+        inv.period_start<=end&&inv.period_end>=start);
+      if(overlap){suppressed.push({tariff_id:tariff.id,month:ym});continue;}
+      output.push({id:'tarif-'+tariff.id+'-'+ym,source:'monthly_contract',
+        provider:tariff.provider,kind:tariff.kind,period_start:start,period_end:end,
+        amount_cents:amount,distribution:tariff.recurring_distribution||'area',
+        common_key:'area',household_id:null,custom_weights:'{}',tariff_id:tariff.id});
+    }
+  }
+  return {invoices:output,suppressed};
+}
 function yearReport(year, { households, meters, readings, invoices, payments, standing_orders=[], tariffs=[], provider_installments=[] },today=new Date().toISOString().slice(0,10)) {
   const hh = households.filter(h=>h.active || invoices.some(i=>i.household_id===h.id) || payments.some(p=>p.household_id===h.id));
+  const generated=monthlyContractInvoices(year,tariffs,invoices);
   const result = { year, households:hh.map(h=>({id:h.id,name:h.name,area_m2:h.area_m2,occupants:h.occupants,cost_cents:0,paid_cents:0,balance_cents:0,by_kind:{}})), invoices:[], warnings:[], totals:{cost_cents:0,paid_cents:0,balance_cents:0}, kinds:{} };
-  for (const inv of invoices.filter(i=>i.period_end.slice(0,4)===String(year))) {
+  for (const inv of [...invoices,...generated.invoices].filter(i=>i.period_end.slice(0,4)===String(year))) {
     try {
       const al=allocInvoice(inv,households,meters,readings);
       for (const h of result.households) {
@@ -159,7 +189,7 @@ function yearReport(year, { households, meters, readings, invoices, payments, st
       }
       result.totals.cost_cents+=inv.amount_cents;
       result.kinds[inv.kind]=(result.kinds[inv.kind]||0)+inv.amount_cents;
-      result.invoices.push({id:inv.id,kind:inv.kind,provider:inv.provider,amount_cents:inv.amount_cents,period_start:inv.period_start,period_end:inv.period_end,shares:al.shares,notes:al.notes,gas:al.gas||null});
+      result.invoices.push({id:inv.id,source:inv.source||'invoice',kind:inv.kind,provider:inv.provider,amount_cents:inv.amount_cents,period_start:inv.period_start,period_end:inv.period_end,shares:al.shares,notes:al.notes,gas:al.gas||null});
     } catch(e) {result.warnings.push(`Rechnung #${inv.id} (${inv.provider}): ${e.message}`);}
   }
   const providerRecurring=providerInstallmentEntries(provider_installments,tariffs,year,{today,dueOnly:false});
@@ -168,6 +198,11 @@ function yearReport(year, { households, meters, readings, invoices, payments, st
   const recurring=standingOrderEntries(standing_orders,payments,year,{today});
   result.standing_order_entries=recurring;
   result.assumptions=recurring.length?['Monatliche Daueraufträge werden bis zum Fälligkeitstag als planmäßig bezahlt angenommen; keine Bankbestätigung vorhanden. Manuelle Abschläge im selben Monat haben Vorrang.']:[];
+  if(generated.invoices.length)result.assumptions.push(
+    'Festpreisverträge: '+generated.invoices.length+' Monatsbeträge wurden aus den Tarifen als Kosten angesetzt (vertraglich berechnet, nicht bankbestätigt).');
+  if(generated.suppressed.length)result.assumptions.push(
+    'Bei '+generated.suppressed.length+' Vertragsmonaten wurde wegen einer überlappenden echten Anbieterrechnung keine zusätzliche Monatspauschale berechnet.');
+
   for (const p of [...payments,...recurring].filter(p=>p.date.slice(0,4)===String(year))) {
     const h=result.households.find(h=>h.id===p.household_id);
     if(h) {h.paid_cents+=p.amount_cents; result.totals.paid_cents+=p.amount_cents;}
@@ -187,4 +222,4 @@ function forecast(report, { priceGrowth = 3, consumptionGrowth = 0 } = {}) {
     return {year:report.year+n,total_cents:Math.round(report.totals.cost_cents*factor),households:report.households.map(h=>({id:h.id,name:h.name,cost_cents:Math.round(h.cost_cents*factor)}))};
   }) }))};
 }
-module.exports={ validDate, readingAt, consumption, commonWeights, standingOrderEntries, providerInstallmentEntries, contractAlerts, allocInvoice, yearReport, forecast };
+module.exports={ validDate, readingAt, consumption, commonWeights, standingOrderEntries, providerInstallmentEntries, monthlyContractInvoices, contractAlerts, allocInvoice, yearReport, forecast };
