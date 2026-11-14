@@ -1,6 +1,8 @@
-# Direkt im UGREEN-Docker-Projekt als YAML verwenden.
-# Docker Compose >= 2.23.1 erforderlich (inline configs: content).
-# Vorher: private GHCR-Anmeldung und lokale .env mit HOM_PASSWORD_HASH.
+# Aktuelle UGREEN-Version mit HTTPS und eigener HOM-Anmeldeseite.
+# HTTPS 443. Das bestehende HOM_PASSWORD_HASH in .env bleibt unverändert.
+# Prüfen: Port 443 muss frei sein, keine Portfreigabe ins Internet.
+name: hom
+
 services:
   app:
     image: ghcr.io/kesselbuettner-dot/hom:latest
@@ -9,7 +11,8 @@ services:
     environment:
       PORT: "4317"
       HOST: "0.0.0.0"
-      HOM_ALLOWED_ORIGINS: "https://villa-kunterbunt.net:8443"
+      HOM_ALLOWED_ORIGINS: "https://villa-kunterbunt.net"
+      HOM_PASSWORD_HASH: ${HOM_PASSWORD_HASH:?Bitte Passwort-Hash in .env hinterlegen}
       HAUSKOSTEN_DATA: /app/data
     volumes:
       - hom_data:/app/data
@@ -24,13 +27,23 @@ services:
     depends_on:
       app:
         condition: service_healthy
-    environment:
-      HOM_PASSWORD_HASH: ${HOM_PASSWORD_HASH:?Bitte HOM_PASSWORD_HASH in .env hinterlegen}
     ports:
-      - "8443:8443"
-    configs:
-      - source: hom_caddyfile
-        target: /etc/caddy/Caddyfile
+      - "443:443"
+    entrypoint:
+      - /bin/sh
+      - -ec
+    command:
+      - |
+        cat > /tmp/HOM.Caddyfile <<'CADDY'
+        https://villa-kunterbunt.net {
+            tls internal
+            encode gzip
+            reverse_proxy app:4317 {
+                header_up Host localhost:4317
+            }
+        }
+        CADDY
+        exec caddy run --config /tmp/HOM.Caddyfile --adapter caddyfile
     volumes:
       - hom_caddy_data:/data
       - hom_caddy_config:/config
@@ -38,20 +51,6 @@ services:
       - hom_internal
     security_opt:
       - no-new-privileges:true
-
-configs:
-  hom_caddyfile:
-    content: |
-      villa-kunterbunt.net:8443 {
-          tls internal
-          encode gzip
-          basic_auth {
-              hom {$$HOM_PASSWORD_HASH}
-          }
-          reverse_proxy app:4317 {
-              header_up Host localhost:4317
-          }
-      }
 
 networks:
   hom_internal:
