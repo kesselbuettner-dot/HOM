@@ -18,18 +18,21 @@ function createClient(config=process.env,send=globalThis.fetch){
   const token=String(config.HOM_PAPERLESS_TOKEN||'').trim();
   const release=ids(config.HOM_PAPERLESS_RELEASE_TAG_ID);
   const categories=ids(config.HOM_PAPERLESS_CATEGORY_TAG_IDS);
-  let base;
+  let base,configError='';
   if(raw){
-    try{base=new URL(raw);}catch{throw error('Ungültige Paperless-Serveradresse.',500);}
-    const host=base.hostname.replace(/^\[|\]$/g,'');
-    if(!['http:','https:'].includes(base.protocol)||base.username||base.password||base.search||base.hash||
-       !base.hostname||base.pathname!=='/'&&base.pathname!==''){
-      throw error('Ungültige Paperless-Serveradresse.',500);
+    try{base=new URL(raw);}catch{configError='Ungültige Paperless-Serveradresse.';}
+    if(base){
+      const host=base.hostname.replace(/^\[|\]$/g,'');
+      if(!['http:','https:'].includes(base.protocol)||base.username||base.password||base.search||base.hash||
+         !base.hostname||base.pathname!=='/'&&base.pathname!==''){
+        configError='Ungültige Paperless-Serveradresse.';
+      }
+      // HTTP nur für interne Docker-/LAN-Ziele, nie unverschlüsselt zum öffentlichen Server.
+      if(base.protocol==='http:'&&!PRIVATE_HOST.test(host))
+        configError='Paperless ohne HTTPS ist nur im Heimnetz erlaubt.';
     }
-    // HTTP nur für interne Docker-/LAN-Ziele, nie unverschlüsselt zum öffentlichen Server.
-    if(base.protocol==='http:'&&!PRIVATE_HOST.test(host))throw error('Paperless ohne HTTPS nur im Heimnetz erlaubt.',500);
   }
-  const ready=Boolean(base&&token&&release.length===1&&categories.length>0);
+  const ready=Boolean(!configError&&base&&token&&release.length===1&&categories.length>0);
   const categorySet=new Set(categories);
   // Die Prüfung wird an die konkrete Kombination aus Server, Dienst-Token und Tags gebunden.
   // Bei jeder Änderung muss erneut eine bekannte private Dokument-ID negativ getestet werden.
@@ -37,7 +40,7 @@ function createClient(config=process.env,send=globalThis.fetch){
     if(!ready)return null;
     return crypto.createHash('sha256').update(JSON.stringify([base.origin,token,release[0],categories.slice().sort((a,b)=>a-b)])).digest('hex');
   }
-  function status(){return {provider:'Paperless-ngx',configured:ready,read_only:true,release_tag_configured:release.length===1,categories_configured:categories.length>0};}
+  function status(){return {provider:'Paperless-ngx',configured:ready,read_only:true,release_tag_configured:release.length===1,categories_configured:categories.length>0,configuration_error:configError||null};}
   function requireReady(){
     if(!ready)throw error('Paperless noch nicht eingerichtet: URL, Token, Freigabe-Tag-ID und Kategorien fehlen.',503);
   }
