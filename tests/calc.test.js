@@ -132,3 +132,15 @@ test('Stromabschläge erzeugen bei annualer Rechnung keine zusätzlichen Vertrag
  assert.equal(result.provider_installment_totals.planned_cents,12*10500);
  assert.equal(result.totals.paid_cents,0);
 });
+
+test('Feste Monatskosten: bei Vertragswechsel am 15. keine erfundene Teilmonats-Abrechnung',()=>{
+ const t=[{id:1,kind:'internet',provider:'Router GmbH',valid_from:'2026-01-01',
+  base_month_eur:30,recurring_cost_mode:'fixed_monthly'},
+ {id:2,kind:'internet',provider:'Router GmbH',valid_from:'2026-07-15',
+  base_month_eur:40,recurring_cost_mode:'fixed_monthly'}];
+ const generated=monthlyContractInvoices(2026,t,[]).invoices;
+ assert.equal(generated.length,11);
+ assert.equal(generated.some(i=>i.period_start==='2026-07-01'),false);
+ assert.equal(generated.find(i=>i.period_start==='2026-06-01').amount_cents,3000);
+ assert.equal(generated.find(i=>i.period_start==='2026-08-01').amount_cents,4000);
+});
