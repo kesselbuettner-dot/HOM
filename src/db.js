@@ -42,6 +42,16 @@ CREATE TABLE IF NOT EXISTS payments (
  note TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS standing_orders (
+ id INTEGER PRIMARY KEY,
+ household_id INTEGER NOT NULL REFERENCES households(id) ON DELETE RESTRICT,
+ amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
+ day_of_month INTEGER NOT NULL CHECK(day_of_month BETWEEN 1 AND 31),
+ valid_from TEXT NOT NULL,
+ valid_until TEXT,
+ note TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `);
 function addMissingColumns(table,definitions){
   const known=new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(row=>row.name));
@@ -65,19 +75,19 @@ addMissingColumns('invoices',{
   gas_tariff_id:'INTEGER'
 });
 function all(table) {
-  const valid=['households','meters','readings','tariffs','invoices','payments','settings'];
+  const valid=['households','meters','readings','tariffs','invoices','payments','standing_orders','settings'];
   if (!valid.includes(table)) throw new Error('Ungültige Tabelle.');
   return db.prepare(`SELECT * FROM ${table} ORDER BY id DESC`).all();
 }
-function snapshot() { return Object.fromEntries(['households','meters','readings','tariffs','invoices','payments'].map(k=>[k,all(k)])); }
+function snapshot() { return Object.fromEntries(['households','meters','readings','tariffs','invoices','payments','standing_orders'].map(k=>[k,all(k)])); }
 function insert(table,values) {
-  if (!['households','meters','readings','tariffs','invoices','payments'].includes(table)) throw new Error('Ungültiger Datentyp.');
+  if (!['households','meters','readings','tariffs','invoices','payments','standing_orders'].includes(table)) throw new Error('Ungültiger Datentyp.');
   const keys=Object.keys(values);if(!keys.length)throw new Error('Keine Angaben.');
   const stmt=db.prepare(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')})`);
   const rv=stmt.run(...Object.values(values));return Number(rv.lastInsertRowid);
 }
 function del(table,id) {
-  if (!['households','meters','readings','tariffs','invoices','payments'].includes(table)) throw new Error('Ungültiger Datentyp.');
+  if (!['households','meters','readings','tariffs','invoices','payments','standing_orders'].includes(table)) throw new Error('Ungültiger Datentyp.');
   return Number(db.prepare(`DELETE FROM ${table} WHERE id=?`).run(id).changes);
 }
 function atomic(fn) { db.exec('BEGIN IMMEDIATE'); try {const r=fn(); db.exec('COMMIT');return r;} catch(e){db.exec('ROLLBACK');throw e;} }
