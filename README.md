@@ -1,3 +1,5 @@
+**Neu: [Internetverträge, monatliche Vertragspauschalen und Anbieter-Abschläge](INTERNET-MONATSABSCHLAEGE.md)** – monatlich abrechnende Stromanbieter und Internet-Flatrates, historische Abschlagserhöhungen ohne Doppelbuchung.
+
 **Neu: [Paperless-ngx mit streng eingeschränkten Dokumentenrechten](PAPERLESS-SICHERHEIT.md)** – getrenntes Dienstkonto, doppelte Tag-Freigabe, Belegauswahl bei Rechnungen und Verträgen. **Neue Passwörter: mindestens 10 Zeichen.**
 
 **Neu: [Gasumrechnung, Kündigungsfristen und Daueraufträge](GAS-VERTRAEGE-ABSCHLAEGE.md)**
