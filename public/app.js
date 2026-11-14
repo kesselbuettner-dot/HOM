@@ -118,7 +118,6 @@ function profilePage(){
 function editUser(id){
   const u=users.find(x=>x.id===id);
   if(!u)return;
-  go('users');
   const form=$('manageUserForm');
   form.elements.id.value=String(u.id);
   form.elements.username.value=u.username;
