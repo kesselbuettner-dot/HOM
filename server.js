@@ -118,6 +118,14 @@ function parseBody(req,limit=8*1024*1024){return new Promise((resolve,reject)=>{
   const chunks=[];let total=0;req.on('data',chunk=>{total+=chunk.length;if(total>limit){reject(Object.assign(new Error('Datei oder Anfrage zu groß (8 MB).'),{status:413}));req.destroy();}else chunks.push(chunk);});
   req.on('end',()=>{try{resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}'));}catch(e){reject(Object.assign(new Error('Ungültige JSON-Eingabe.'),{status:400}));}});req.on('error',reject);
 });}
+function paperlessApproved(){
+  const fingerprint=paperless.fingerprint();
+  return Boolean(fingerprint&&db.prepare("SELECT value FROM settings WHERE key='paperless_approval_fingerprint'").get()?.value===fingerprint);
+}
+function requirePaperlessApproval(){
+  if(!paperless.status().configured)fail('Paperless nicht vollständig konfiguriert.',503);
+  if(!paperlessApproved())fail('Paperless ist noch nicht freigegeben. Admin: Unter Hauseinstellungen zuerst ein bekanntes privates Archivdokument als Negativtest prüfen.',403);
+}
 function report(year){if(!Number.isInteger(year)||year<2000||year>2200)fail('Ungültiges Abrechnungsjahr.');return yearReport(year,snapshot());}
 function attachment(invoiceId,attachmentObj){
  if(!attachmentObj)return null;
@@ -209,13 +217,15 @@ async function handle(req,res){
    if(p.startsWith('/api/')){
      const user=auth.currentUser(db,req);
      if(req.method==='GET'&&p==='/api/paperless/status')
-       return send(res,200,paperless.status());
+       return send(res,200,{...paperless.status(),verified:paperlessApproved()});
      if(req.method==='GET'&&p==='/api/paperless/documents'){
+       requirePaperlessApproval();
        const list=await paperless.search(u.searchParams.get('q')||'');
        return send(res,200,{documents:list});
      }
      const previewMatch=p.match(/^\/api\/paperless\/documents\/(\d+)\/preview$/);
      if(req.method==='GET'&&previewMatch){
+       requirePaperlessApproval();
        const binary=await paperless.preview(previewMatch[1]);
        res.writeHead(200,{
          'Content-Type':'application/pdf','Content-Disposition':'inline; filename="HOM-Beleg.pdf"',
@@ -226,7 +236,13 @@ async function handle(req,res){
      if(req.method==='POST'&&p==='/api/paperless/test-private'){
        if(user?.role!=='admin')fail('Nur Administratoren dürfen Archivberechtigungen prüfen.',403);
        const values=await parseBody(req);
-       return send(res,200,await paperless.privateProbe(values.document_id));
+       const result=await paperless.privateProbe(values.document_id);
+       if(result.denied){
+         db.prepare("INSERT INTO settings (key,value) VALUES ('paperless_approval_fingerprint',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(paperless.fingerprint());
+       }else{
+         db.prepare("DELETE FROM settings WHERE key='paperless_approval_fingerprint'").run();
+       }
+       return send(res,200,result);
      }
      if(req.method==='GET'&&p==='/api/contracts/alerts')return send(res,200,{alerts:contractAlerts(all('tariffs'))});
      if(req.method==='GET'&&p==='/api/standing-orders/preview'){
@@ -381,6 +397,7 @@ async function handle(req,res){
          const body=await parseBody(req);
          const clean=validate(table,body);
          if((table==='invoices'||table==='tariffs')&&clean.paperless_document_id!==null){
+           requirePaperlessApproval();
            const doc=await paperless.document(clean.paperless_document_id);
            clean.paperless_document_id=doc.id;
          }
