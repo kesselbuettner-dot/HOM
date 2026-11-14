@@ -47,6 +47,27 @@ function standingOrderEntries(orders,manualPayments,year,{today=new Date().toISO
   entries.sort((a,b)=>a.date.localeCompare(b.date)||a.household_id-b.household_id);
   return entries;
 }
+/** Monatliche Auszahlungen an Versorger sind nur ein Zahlungsplan.
+ * Sie werden NICHT erneut als Hauskosten/Haushaltsabschläge abgerechnet. */
+function providerInstallmentEntries(orders,tariffs,year,{today=new Date().toISOString().slice(0,10),dueOnly=true}={}){
+  const byId=new Map((tariffs||[]).map(t=>[Number(t.id),t]));
+  const rows=[];
+  for(const rule of orders||[]){
+    const tariff=byId.get(Number(rule.tariff_id));
+    if(!tariff)continue;
+    for(let month=1;month<=12;month++){
+      const ym=year+'-'+String(month).padStart(2,'0');
+      if(ym<rule.valid_from.slice(0,7)||(rule.valid_until&&ym>rule.valid_until.slice(0,7)))continue;
+      const date=ym+'-'+String(Math.min(Number(rule.day_of_month),monthEnd(year,month))).padStart(2,'0');
+      if(dueOnly&&date>today)continue;
+      rows.push({tariff_id:rule.tariff_id,provider:tariff.provider,kind:tariff.kind,
+        date,amount_cents:Number(rule.amount_cents),provider_installment_id:rule.id,
+        note:rule.note||'',source:'provider_installment',confirmed:false});
+    }
+  }
+  rows.sort((a,b)=>a.date.localeCompare(b.date)||a.tariff_id-b.tariff_id);
+  return rows;
+}
 function contractAlerts(tariffs,today=new Date().toISOString().slice(0,10)){
   return (tariffs||[]).filter(t=>t.cancellation_deadline&&!t.cancellation_done)
     .map(t=>({...t,days_left:Math.round((dateMs(t.cancellation_deadline)-dateMs(today))/86400000)}))
@@ -126,7 +147,7 @@ function allocInvoice(invoice, households, meters, readings) {
   if (weights.reduce((s,[,w])=>s+w,0) <= 0) throw new Error('Die Umlage hat keine positiven Gewichte.');
   return { shares:splitCents(invoice.amount_cents,weights), notes, method:invoice.distribution,gas:gasDetails };
 }
-function yearReport(year, { households, meters, readings, invoices, payments, standing_orders=[] },today=new Date().toISOString().slice(0,10)) {
+function yearReport(year, { households, meters, readings, invoices, payments, standing_orders=[], tariffs=[], provider_installments=[] },today=new Date().toISOString().slice(0,10)) {
   const hh = households.filter(h=>h.active || invoices.some(i=>i.household_id===h.id) || payments.some(p=>p.household_id===h.id));
   const result = { year, households:hh.map(h=>({id:h.id,name:h.name,area_m2:h.area_m2,occupants:h.occupants,cost_cents:0,paid_cents:0,balance_cents:0,by_kind:{}})), invoices:[], warnings:[], totals:{cost_cents:0,paid_cents:0,balance_cents:0}, kinds:{} };
   for (const inv of invoices.filter(i=>i.period_end.slice(0,4)===String(year))) {
@@ -141,6 +162,9 @@ function yearReport(year, { households, meters, readings, invoices, payments, st
       result.invoices.push({id:inv.id,kind:inv.kind,provider:inv.provider,amount_cents:inv.amount_cents,period_start:inv.period_start,period_end:inv.period_end,shares:al.shares,notes:al.notes,gas:al.gas||null});
     } catch(e) {result.warnings.push(`Rechnung #${inv.id} (${inv.provider}): ${e.message}`);}
   }
+  const providerRecurring=providerInstallmentEntries(provider_installments,tariffs,year,{today,dueOnly:false});
+  result.provider_installment_entries=providerRecurring;
+  result.provider_installment_totals={planned_cents:providerRecurring.reduce((sum,row)=>sum+row.amount_cents,0)};
   const recurring=standingOrderEntries(standing_orders,payments,year,{today});
   result.standing_order_entries=recurring;
   result.assumptions=recurring.length?['Monatliche Daueraufträge werden bis zum Fälligkeitstag als planmäßig bezahlt angenommen; keine Bankbestätigung vorhanden. Manuelle Abschläge im selben Monat haben Vorrang.']:[];
@@ -163,4 +187,4 @@ function forecast(report, { priceGrowth = 3, consumptionGrowth = 0 } = {}) {
     return {year:report.year+n,total_cents:Math.round(report.totals.cost_cents*factor),households:report.households.map(h=>({id:h.id,name:h.name,cost_cents:Math.round(h.cost_cents*factor)}))};
   }) }))};
 }
-module.exports={ validDate, readingAt, consumption, commonWeights, standingOrderEntries, contractAlerts, allocInvoice, yearReport, forecast };
+module.exports={ validDate, readingAt, consumption, commonWeights, standingOrderEntries, providerInstallmentEntries, contractAlerts, allocInvoice, yearReport, forecast };
