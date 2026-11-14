@@ -372,12 +372,14 @@ async function handle(req,res){
        if(p.endsWith('.xlsx')){
          const sheets={
            Abrechnung:[['Jahr',year],[],['Haushalt','Wohnfläche m²','Personen','Kosten EUR','Abschläge EUR','Saldo EUR'],...r.households.map(h=>[h.name,h.area_m2,h.occupants,h.cost_cents/100,h.paid_cents/100,h.balance_cents/100]),[],['Gesamt','','',r.totals.cost_cents/100,r.totals.paid_cents/100,r.totals.balance_cents/100]],
-           Rechnungen:[['Rechnung','Lieferant','Kostenart','Von','Bis','Betrag EUR'],...r.invoices.map(i=>[i.id,i.provider,i.kind,i.period_start,i.period_end,i.amount_cents/100])],
-           Hinweise:[['Abrechnung',year],['Hinweis','Rechnungen werden dem Jahr des Perioden-Enddatums zugeordnet.'],...(r.assumptions||[]).map(w=>['Dauerauftrag',w]),...r.warnings.map(w=>['Warnung',w])],
+           Rechnungen:[['Rechnung','Lieferant','Kostenart','Von','Bis','Betrag EUR','Typ'],...r.invoices.map(i=>[i.id,i.provider,i.kind,i.period_start,i.period_end,i.amount_cents/100,i.source==='monthly_contract'?'Monatspauschale aus Vertrag':'Anbieterrechnung'])],
+           Hinweise:[['Abrechnung',year],['Hinweis','Rechnungen werden dem Jahr des Perioden-Enddatums zugeordnet.'],...(r.assumptions||[]).map(w=>['Annahme',w]),...r.warnings.map(w=>['Warnung',w])],
            Gasumrechnung:[['Rechnung','Versorger','Von','Bis','Brennwert kWh/m³','Zustandszahl','m³','kWh'],
              ...r.invoices.filter(i=>i.gas).map(i=>[i.id,i.provider,i.period_start,i.period_end,i.gas.calorific_kwh_m3,i.gas.condition_factor,i.gas.total_volume_m3,i.gas.total_energy_kwh])],
            Dauerauftraege:[['Datum','Haushalt-ID','Abschlag EUR','Hinweis'],
-             ...(r.standing_order_entries||[]).map(e=>[e.date,e.household_id,e.amount_cents/100,'Planmäßig, nicht bankbestätigt'])]
+             ...(r.standing_order_entries||[]).map(e=>[e.date,e.household_id,e.amount_cents/100,'Planmäßig, nicht bankbestätigt'])],
+           Anbieterabschlaege:[['Datum','Anbieter','Kostenart','Abschlag EUR','Hinweis'],
+             ...(r.provider_installment_entries||[]).map(e=>[e.date,e.provider,e.kind,e.amount_cents/100,'Auszahlung an Anbieter, nur geplant; keine zusätzliche Kostenbuchung'])]
          };
          return download(res,`Hauskosten-${year}.xlsx`,createXlsx(sheets),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
        }
@@ -388,7 +390,7 @@ async function handle(req,res){
          {text:h.name,size:13,bold:true},{text:`Kosten: ${euro(h.cost_cents)} EUR | Abschlaege: ${euro(h.paid_cents)} EUR | Saldo: ${euro(h.balance_cents)} EUR`,size:11},
          ...Object.entries(h.by_kind).map(([k,v])=>({text:`   ${k}: ${euro(v)} EUR`,size:10,gap:17})),
          ...(householdId?r.invoices.filter(i=>i.shares[h.id]>0).flatMap(i=>[
-         {text:`   Rechnung ${i.id}: ${i.provider}, ${i.kind}, ${euro(i.shares[h.id])} EUR`,size:9,gap:17},
+         {text:`   ${i.source==='monthly_contract'?'Vertragspauschale':'Rechnung'} ${i.id}: ${i.provider}, ${i.kind}, ${euro(i.shares[h.id])} EUR`,size:9,gap:17},
          ...(i.gas?.households?.find(g=>g.id===h.id)?[
            {text:`   Gas: ${i.gas.households.find(g=>g.id===h.id).volume_m3.toFixed(3)} m3 = ${i.gas.households.find(g=>g.id===h.id).energy_kwh.toFixed(3)} kWh (Brennwert ${i.gas.calorific_kwh_m3}, Zustandszahl ${i.gas.condition_factor})`,size:9,gap:17}
          ]:[])
