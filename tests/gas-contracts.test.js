@@ -57,6 +57,21 @@ test('API: Gastarif mit Faktoren, Rechnungs-Snapshot, monatliche Daueraufträge 
  assert.equal(x.value.invoices[0].gas.total_volume_m3,100);
  assert.equal(x.value.invoices[0].gas.total_energy_kwh,1064);
  assert.equal(x.value.totals.cost_cents,10640);
+ // Ein späterer Tarifwechsel darf eine bereits gespeicherte Rechnung nicht rückwirkend umrechnen.
+ x=await req('/api/tariffs/'+tariffId,'PATCH',{...gasTariff,gas_calorific_kwh_m3:11.7});
+ assert.equal(x.status,200);
+ x=await req('/api/invoices/'+invoiceId,'PATCH',{
+  provider:'Gaswerk',invoice_number:'GW-2025',kind:'gas',amount_eur:'106.40',
+  period_start:'2025-01-01',period_end:'2025-12-31',
+  distribution:'meter',common_key:'area',gas_tariff_id:tariffId,note:'Geprüft'
+ });
+ assert.equal(x.status,200);
+ x=await req('/api/invoices');
+ const savedInvoice=x.value.find(i=>i.id===invoiceId);
+ assert.equal(savedInvoice.gas_calorific_kwh_m3,11.2);
+ x=await req('/api/contracts/alerts');
+ assert.equal(x.status,200);
+ assert.equal(x.value.alerts.some(v=>v.provider==='Gaswerk'),true);
 
  // Nach 6 Monaten wurde der Dauerauftrag von 100 auf 130 Euro erhöht.
  x=await req('/api/standing-orders','POST',{household_id:id,amount_eur:'100.00',
