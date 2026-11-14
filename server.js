@@ -13,10 +13,12 @@ const auth=require('./src/auth');
 const HOST=process.env.HOST||'127.0.0.1', PORT=Number(process.env.PORT||4317);
 const allowedOrigins=new Set([`http://127.0.0.1:${PORT}`,`http://localhost:${PORT}`,...(process.env.HOM_ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).filter(Boolean)]);
 const ROOT=path.join(__dirname,'public');
-if(!auth.enabled && !['127.0.0.1','localhost','::1'].includes(HOST)) {
-  throw new Error('NAS-/Netzwerkbetrieb ohne HOM_PASSWORD_HASH ist aus Sicherheitsgründen gesperrt.');
-}
+// Erst die Konten und bestehende Sitzungen laden. Vor init() ist auth.enabled
+// immer false, selbst wenn HOM_PASSWORD_HASH korrekt gesetzt wurde.
 auth.init(db);
+if(!auth.enabled && !['127.0.0.1','localhost','::1'].includes(HOST)) {
+  throw new Error('NAS-/Netzwerkbetrieb ohne eingerichteten Administrator ist aus Sicherheitsgründen gesperrt. Bitte HOM_PASSWORD_HASH für die Ersteinrichtung hinterlegen.');
+}
 const kinds=['strom','gas','wasser','abwasser','heizung','warmwasser','muell','versicherung','grundsteuer','sonstiges'];
 const distributions=['meter','area','persons','equal','custom'];
 const send=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
