@@ -5,11 +5,11 @@ const currency=c=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'
 const number=n=>new Intl.NumberFormat('de-DE',{maximumFractionDigits:3}).format(n||0);
 const dateDE=s=>s?new Date(`${s}T12:00:00`).toLocaleDateString('de-DE'):'–';
 const moneyInput=n=>((n||0)/100).toFixed(2);
-const kinds={strom:'Strom',gas:'Gas',wasser:'Wasser',abwasser:'Abwasser',heizung:'Heizung',warmwasser:'Warmwasser',muell:'Müll',versicherung:'Versicherung',grundsteuer:'Grundsteuer',sonstiges:'Sonstige Kosten'};
+const kinds={strom:'Strom',gas:'Gas',wasser:'Wasser',abwasser:'Abwasser',heizung:'Heizung',warmwasser:'Warmwasser',muell:'Müll',versicherung:'Versicherung',grundsteuer:'Grundsteuer',internet:'Internet & Telefon',sonstiges:'Sonstige Kosten'};
 const methods={meter:'Nach Unterzählern',area:'Wohnfläche',persons:'Personen',equal:'Gleichmäßig',custom:'Individuelle Gewichte'};
 const labels={dashboard:'Übersicht',households:'Haushalte',meters:'Zähler & Stände',tariffs:'Tarife',invoices:'Rechnungen',payments:'Abschläge',report:'Jahresabrechnung',forecast:'Kostenprognose',backup:'Datensicherung',users:'Benutzerverwaltung',settings:'Hauseinstellungen',profile:'Mein Konto'};
 const KindsOptions=Object.entries(kinds).map(([value,label])=>({value,label}));
-let db={households:[],meters:[],readings:[],tariffs:[],invoices:[],payments:[],standing_orders:[]},report=null;
+let db={households:[],meters:[],readings:[],tariffs:[],invoices:[],payments:[],standing_orders:[],provider_installments:[]},report=null;
 let account=null, houseTitle='Villa Kunterbunt', users=[];
 let view='dashboard', year=new Date().getFullYear(), modalType='', editingID=null, forecastResult=null, timer;
 const root=$('content');
@@ -79,14 +79,15 @@ function meters(){
   return page('Zähler & Verbräuche','Haupt- und Unterzähler anlegen und Ablesungen dokumentieren.',addButton('meter','Zähler anlegen')+addButton('reading','Stand eintragen'))+`<section class="card"><div class="card-head"><div><h2>Zählerübersicht</h2><p>Zähler mit den letzten gespeicherten Ständen</p></div></div>${table(['Zähler','Art','Zuordnung','Letzter Stand','Aktion'],rows)}</section><section class="card" style="margin-top:20px"><div class="card-head"><h2>Letzte Ablesungen</h2></div>${table(['Datum','Zähler','Stand','Aktion'],rd)}</section><div class="notice info" style="margin-top:20px">Für eine verbrauchsbasierte Abrechnung sind Ablesungen am Anfang und Ende des Rechnungszeitraums nötig. Zwischenwerte können interpoliert werden; nach außen wird nie extrapoliert.</div>`;
 }
 function tariffs(){
- return page('Tarife & Verträge','Brennwert, Zustandszahl, Energiepreise, Vertragslaufzeiten und Kündigungstermine verwalten.',
+ return page('Tarife & Verträge','Auch Internet-/Telefonverträge, monatliche Anbieterrechnungen und Kündigungstermine verwalten.',
     addButton('tariff','Tarif oder Vertrag erfassen'))+
  '<section class="card">'+table(['Versorger','Kostenart','Gültigkeit / Laufzeit','Arbeitspreis','Gasfaktoren','Kündigung','Aktion'],
  (db.tariffs||[]).map(t=>tr([
    '<b>'+E(t.provider)+'</b>',E(kinds[t.kind]||t.kind),
-   'Ab '+dateDE(t.valid_from)+(t.contract_start?'<div class="tiny muted">Start '+dateDE(t.contract_start)+'</div>':'')+
+   'Ab '+dateDE(t.valid_from)+'<div class="tiny muted">Abrechnung: '+({monthly:'monatlich',annual:'jährlich',other:'abweichend'}[t.billing_frequency]||'jährlich')+'</div>'+(t.contract_start?'<div class="tiny muted">Start '+dateDE(t.contract_start)+'</div>':'')+
    (t.contract_end?'<div class="tiny muted">Ende '+dateDE(t.contract_end)+'</div>':''),
-   number(t.unit_price_eur)+' €/kWh'+(t.kind==='gas'?'':' bzw. Einheit')+'<div class="tiny muted">'+number(t.base_month_eur)+' € Grundpreis/Monat</div>',
+   t.kind==='internet'?'<strong>'+number(t.base_month_eur)+' € / Monat</strong><div class="tiny muted">Vertragspauschale</div>':
+   number(t.unit_price_eur)+' € / Einheit<div class="tiny muted">'+number(t.base_month_eur)+' € Grundpreis/Monat</div>',
    t.kind==='gas'?(t.gas_calorific_kwh_m3?number(t.gas_calorific_kwh_m3)+' kWh/m³ × '+number(t.gas_condition_factor):'Nicht hinterlegt'):'–',
    t.cancellation_deadline?(dateDE(t.cancellation_deadline)+(t.cancellation_done?' ✓ Erledigt':'')+'<div class="tiny muted">Erinnerung '+Number(t.reminder_days??42)+' Tage vorher</div>'):'–',
    '<div class="table-actions">'+paperlessPreviewLink(t.paperless_document_id)+editBtn('tariff',t.id)+delBtn('tariffs',t.id)+'</div>'
