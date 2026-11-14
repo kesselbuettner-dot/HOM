@@ -24,7 +24,10 @@ test('Die Anbindung bleibt ohne vollständige Konfiguration gesperrt',async()=>{
  assert.equal(client.status().configured,false);
  await assert.rejects(client.search('gas'),{status:503});
  await assert.rejects(createClient({...cfg,HOM_PAPERLESS_CATEGORY_TAG_IDS:''},mock).search(),{status:503});
- assert.throws(()=>createClient({...cfg,HOM_PAPERLESS_URL:'http://example.com'},mock),/HTTPS/);
+ const wrongUrl=createClient({...cfg,HOM_PAPERLESS_URL:'http://example.com'},mock);
+ assert.equal(wrongUrl.status().configured,false);
+ assert.match(wrongUrl.status().configuration_error,/HTTPS/);
+ await assert.rejects(wrongUrl.search('gas'),{status:503});
 });
 test('Nur HOM-Freigabe UND erlaubte Kategorie erscheinen – keine OCR und keine Token',async()=>{
  hits=[];revoked=false;
