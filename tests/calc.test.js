@@ -1,7 +1,7 @@
 'use strict';
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const {parseMoney,splitCents}=require('../src/money');
-const {readingAt,consumption,standingOrderEntries,providerInstallmentEntries,contractAlerts,allocInvoice,yearReport,forecast}=require('../src/calc');
+const {readingAt,consumption,standingOrderEntries,providerInstallmentEntries,monthlyContractInvoices,contractAlerts,allocInvoice,yearReport,forecast}=require('../src/calc');
 const hh=[{id:1,name:'EG',area_m2:50,occupants:2,active:1},{id:2,name:'OG',area_m2:100,occupants:3,active:1}];
 test('Euro centgenau einlesen',()=>{assert.equal(parseMoney('12,34'),1234);assert.equal(parseMoney('0.01'),1);assert.throws(()=>parseMoney('1.234'));});
 test('Restcent werden deterministisch verteilt',()=>{assert.deepEqual(splitCents(100,[[1,1],[2,1],[3,1]]),{'1':34,'2':33,'3':33});assert.equal(Object.values(splitCents(12345,[[1,2],[2,3],[3,5]])).reduce((a,b)=>a+b),12345);});
@@ -97,4 +97,38 @@ test('Anbieter-Abschläge: Internet und Strom monatlich, Erhöhung ab Juli, kein
  assert.equal(annual.totals.paid_cents,0); // Keine Anbieter-Zahlung fälschlich als Haushaltseingang
  assert.equal(annual.provider_installment_totals.planned_cents,6*3499+6*3999+12*9900);
  assert.equal(annual.provider_installment_entries.length,24);
+});
+
+test('Monatspauschalen: Internet 39,95 € → 49,95 € ab Juli, echte Monatsrechnung ohne Doppelbelastung',()=>{
+ const contracts=[
+  {id:1,kind:'internet',provider:'Telekom',valid_from:'2026-01-01',base_month_eur:39.95,
+   recurring_cost_mode:'fixed_monthly',recurring_distribution:'equal'},
+  {id:2,kind:'internet',provider:'Telekom',valid_from:'2026-07-01',base_month_eur:49.95,
+   recurring_cost_mode:'fixed_monthly',recurring_distribution:'equal'}
+ ];
+ const manual=[{id:5,provider:'Telekom',kind:'internet',period_start:'2026-06-01',
+   period_end:'2026-06-30',amount_cents:3995,distribution:'equal'}];
+ const generated=monthlyContractInvoices(2026,contracts,manual);
+ assert.equal(generated.invoices.length,11);
+ assert.equal(generated.suppressed.length,1);
+ assert.equal(generated.invoices.find(x=>x.period_start==='2026-07-01').amount_cents,4995);
+ const result=yearReport(2026,{households:hh,meters:[],readings:[],invoices:manual,
+   tariffs:contracts,provider_installments:[],standing_orders:[],payments:[]},'2026-12-31');
+ assert.equal(result.totals.cost_cents,6*3995+6*4995);
+ assert.equal(result.invoices.filter(i=>i.source==='monthly_contract').length,11);
+ assert.equal(result.households[0].cost_cents,result.households[1].cost_cents);
+ assert.equal(result.totals.paid_cents,0);
+ assert(result.assumptions.some(x=>x.includes('überlappenden echten Anbieterrechnung')));
+});
+test('Stromabschläge erzeugen bei annualer Rechnung keine zusätzlichen Vertragskosten',()=>{
+ const tariffs=[{id:8,provider:'Stromwerke',kind:'strom',valid_from:'2026-01-01',
+    base_month_eur:9.99,recurring_cost_mode:'invoice'}];
+ const rules=[{id:1,tariff_id:8,amount_cents:10500,day_of_month:3,valid_from:'2026-01-01'}];
+ const inv=[{id:1,provider:'Stromwerke',kind:'strom',period_start:'2026-01-01',
+    period_end:'2026-12-31',amount_cents:120000,distribution:'area'}];
+ const result=yearReport(2026,{households:hh,meters:[],readings:[],invoices:inv,tariffs,
+    provider_installments:rules,payments:[]},'2026-12-31');
+ assert.equal(result.totals.cost_cents,120000);
+ assert.equal(result.provider_installment_totals.planned_cents,12*10500);
+ assert.equal(result.totals.paid_cents,0);
 });
