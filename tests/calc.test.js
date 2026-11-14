@@ -116,7 +116,7 @@ test('Monatspauschalen: Internet 39,95 € → 49,95 € ab Juli, echte Monatsre
    tariffs:contracts,provider_installments:[],standing_orders:[],payments:[]},'2026-12-31');
  assert.equal(result.totals.cost_cents,6*3995+6*4995);
  assert.equal(result.invoices.filter(i=>i.source==='monthly_contract').length,11);
- assert.equal(result.households[0].cost_cents,result.households[1].cost_cents);
+ assert.equal(result.households[0].cost_cents-result.households[1].cost_cents,12); // Restcent: jeder ungerade Monatsbetrag wird deterministisch zugeordnet
  assert.equal(result.totals.paid_cents,0);
  assert(result.assumptions.some(x=>x.includes('überlappenden echten Anbieterrechnung')));
 });
