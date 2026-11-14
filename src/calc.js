@@ -154,13 +154,17 @@ function monthlyContractInvoices(year,tariffs=[],manualInvoices=[]){
   for(let month=1;month<=12;month++){
     const ym=year+'-'+String(month).padStart(2,'0');
     const start=ym+'-01',end=ym+'-'+String(monthEnd(year,month)).padStart(2,'0');
-    const candidates=(tariffs||[]).filter(t=>t.valid_from<=start&&
-      (!t.contract_start||t.contract_start<=start)&&(!t.contract_end||t.contract_end>=end));
+    // Den im Monat zuletzt wirksam werdenden Tarif wählen. Wechselt ein Preis mitten
+    // im Monat, keine freie Hochrechnung: nur eine tatsächliche Rechnung ist korrekt.
+    const candidates=(tariffs||[]).filter(t=>t.valid_from<=end&&
+      (!t.contract_start||t.contract_start<=end)&&(!t.contract_end||t.contract_end>=start));
     const byContract=new Map();
     for(const tariff of candidates.sort((a,b)=>a.valid_from.localeCompare(b.valid_from)||Number(a.id)-Number(b.id))){
       byContract.set(tariff.kind+':'+String(tariff.provider).trim().toLowerCase(),tariff);
     }
     for(const tariff of byContract.values()){
+      if(tariff.valid_from>start||(tariff.contract_start&&tariff.contract_start>start)||
+         (tariff.contract_end&&tariff.contract_end<end))continue;
       if(tariff.recurring_cost_mode!=='fixed_monthly')continue;
       const amount=Math.round(Number(tariff.base_month_eur)*100);
       if(!Number.isSafeInteger(amount)||amount<=0)continue;
