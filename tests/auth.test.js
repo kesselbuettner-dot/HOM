@@ -33,7 +33,7 @@ test('HOM: Loginseite, API-Schutz, 30-Tage-Cookie, Abmeldung', async (t) => {
 
   const login=async (password,remember=false)=>fetch(url+'/login',{
     method:'POST',redirect:'manual',
-    headers:{'content-type':'application/x-www-form-urlencoded','origin':url},
+    headers:{'content-type':'application/x-www-form-urlencoded','origin':'http://127.0.0.1:4317'},
     body:new URLSearchParams({username:'hom',password,...(remember?{remember:'on'}:{})}).toString()
   });
   const wrong=await login('falsch');
@@ -54,7 +54,7 @@ test('HOM: Loginseite, API-Schutz, 30-Tage-Cookie, Abmeldung', async (t) => {
   assert.equal(backup.status,401);
   const end=await fetch(url+'/logout',{
     method:'POST',redirect:'manual',
-    headers:{cookie:sessionCookie,origin:url}
+    headers:{cookie:sessionCookie,origin:'http://127.0.0.1:4317'}
   });
   assert.equal(end.status,303);
   assert.match(end.headers.get('set-cookie'),/Max-Age=0/);
