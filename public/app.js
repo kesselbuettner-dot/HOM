@@ -81,7 +81,7 @@ function meters(){
 function tariffs(){
  return page('Tarife & Verträge','Auch Internet-/Telefonverträge, monatliche Anbieterrechnungen und Kündigungstermine verwalten.',
     addButton('tariff','Tarif oder Vertrag erfassen'))+
- '<section class="card">'+table(['Versorger','Kostenart','Gültigkeit / Laufzeit','Arbeitspreis','Gasfaktoren','Kündigung','Aktion'],
+ '<section class="card">'+table(['Versorger','Kostenart','Gültigkeit / Laufzeit','Preis / Grundgebühr','Gasfaktoren','Kündigung','Aktion'],
  (db.tariffs||[]).map(t=>tr([
    '<b>'+E(t.provider)+'</b>',E(kinds[t.kind]||t.kind),
    'Ab '+dateDE(t.valid_from)+'<div class="tiny muted">Abrechnung: '+({monthly:'monatlich',annual:'jährlich',other:'abweichend'}[t.billing_frequency]||'jährlich')+'</div>'+(t.contract_start?'<div class="tiny muted">Start '+dateDE(t.contract_start)+'</div>':'')+
@@ -157,6 +157,7 @@ function reportPage(){
  return page('Jahresabrechnung','Automatische, nachvollziehbare Kostenaufteilung je Haushalt.',`<a href="/api/report.pdf?year=${year}" class="btn primary">↓ PDF exportieren</a><a href="/api/report.xlsx?year=${year}" class="btn secondary">↓ Excel</a><a href="/api/report.csv?year=${year}" class="btn secondary">↓ CSV</a><button class="btn secondary" data-print>⎙ Drucken</button>`)+
   (report.warnings.length?`<div class="notice error"><b>Achtung – Abrechnung unvollständig.</b><ul>${report.warnings.map(w=>`<li>${E(w)}</li>`).join('')}</ul></div>`:'')+
   (report.assumptions?.length?`<div class="notice info">${report.assumptions.map(E).join(' ')}</div>`:'')+
+  (report.provider_installment_entries?.length?`<div class="notice info">An Anbieter geplante Monatszahlungen ${year}: <b>${currency(report.provider_installment_totals?.planned_cents||0)}</b>. Diese sind nur eine Zahlungsplanung und nicht als zusätzliche Kosten oder Haushaltseingänge enthalten.</div>`:'')+
   `<section class="card report-print"><div class="report-header"><div class="eyebrow">${E(houseTitle)}</div><h2>Abrechnung ${year}</h2><span class="muted">Stand: ${new Date().toLocaleDateString('de-DE')}</span></div>
    <div class="report-total"><div><small class="muted">Abzurechnende Gesamtkosten</small><br><b>${currency(report.totals.cost_cents)}</b></div><div><small class="muted">Geleistete Vorauszahlungen</small><br><b>${currency(report.totals.paid_cents)}</b></div><div><small class="muted">Offener Saldo</small><br><b>${currency(report.totals.balance_cents)}</b></div></div>
    <h2>Verteilung nach Haushalt</h2>${table(['Haushalt','Fläche','Personen','Kosten','Vorauszahlung','Ergebnis','PDF'],hRows,empty('◎','Noch keine Daten','Erfasst erst Haushalte und Rechnungen.'))}
