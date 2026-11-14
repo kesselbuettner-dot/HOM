@@ -8,7 +8,7 @@
 <body>
 <div class="layout">
   <aside class="sidebar" id="sidebar">
-    <div class="brand"><div class="brand-mark">⌂</div><div><b>HAUSKOSTEN</b><small>Manager · lokal</small></div></div>
+    <div class="brand"><div class="brand-mark">⌂</div><div><b>HAUSKOSTEN</b><small id="brandHouseTitle">Villa Kunterbunt</small></div></div>
     <div class="side-label">VERWALTUNG</div>
     <nav id="navigation" aria-label="Hauptnavigation">
       <button data-nav="dashboard" class="active"><span>▦</span> Übersicht</button>
@@ -22,6 +22,9 @@
       <button data-nav="forecast"><span>⌁</span> Prognose</button>
       <div class="side-label side-group">SYSTEM</div>
       <button data-nav="backup"><span>▧</span> Datensicherung</button>
+      <button data-nav="profile"><span>♙</span> Mein Konto</button>
+      <button data-nav="users" id="navUsers" hidden><span>♧</span> Benutzerverwaltung</button>
+      <button data-nav="settings" id="navSettings" hidden><span>⚙</span> Hauseinstellungen</button>
     </nav>
     <form class="logout-form" action="/logout" method="post"><button class="logout-button" type="submit">⇥&nbsp; Abmelden</button></form>
     <div class="sidebar-bottom"><span class="live-dot"></span> Im privaten Heimnetz <small>Keine Cloud · SQLite</small></div>
@@ -29,8 +32,8 @@
   <div class="main-area">
     <header class="topbar">
       <button id="mobileMenu" class="mobile-menu" aria-label="Navigation öffnen">☰</button>
-      <div class="crumb"><span>Mehrgenerationenhaus</span><span class="slash">/</span><strong id="crumbLabel">Übersicht</strong></div>
-      <div class="top-right"><span class="local-chip"><span class="live-dot"></span> Lokal & privat</span><label class="year-label">Abrechnungsjahr <select id="yearPick" aria-label="Jahr auswählen"></select></label></div>
+      <div class="crumb"><span id="headerHouseTitle">Villa Kunterbunt</span><span class="slash">/</span><strong id="crumbLabel">Übersicht</strong></div>
+      <div class="top-right"><span class="account-chip" id="accountName"></span><span class="local-chip"><span class="live-dot"></span> Lokal & privat</span><label class="year-label">Abrechnungsjahr <select id="yearPick" aria-label="Jahr auswählen"></select></label></div>
     </header>
     <main id="content" tabindex="-1"><div class="loading">Anwendung wird geladen …</div></main>
     <footer>Hauskosten-Manager <span>·</span> Nur lokale Speicherung <span>·</span> Keine Steuer- oder Rechtsberatung</footer>

@@ -107,6 +107,22 @@ function serveStatic(url,res){
 }
 function download(res,filename,body,type){res.writeHead(200,{'Content-Type':type,'Content-Disposition':`attachment; filename="${filename}"`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(body);}
 const YEAR=new Date().getFullYear();
+function houseTitle(){
+  return db.prepare("SELECT value FROM settings WHERE key='house_title'").get()?.value||'Villa Kunterbunt';
+}
+function serveLogin(res){
+  const safeTitle=houseTitle().replace(/[&<>"']/g,ch=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[ch]));
+  const html=fs.readFileSync(path.join(ROOT,'login.html'),'utf8').replaceAll('{{HOUSE_TITLE}}',safeTitle);
+  res.writeHead(200,{
+    'Content-Type':'text/html; charset=utf-8',
+    'Cache-Control':'no-store',
+    'X-Content-Type-Options':'nosniff',
+    'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  }); res.end(html);
+}
+
 async function handle(req,res){
  try{
    // Requests strictly limited to loopback via listener and expected Host; prevents DNS rebinding.
@@ -122,7 +138,7 @@ async function handle(req,res){
    if (auth.enabled) {
      if (p==='/login' && req.method==='GET') {
        if (auth.isAuthenticated(db,req)) return auth.redirect(res,'/');
-       return serveStatic('/login.html',res);
+       return serveLogin(res);
      }
      if (p==='/login' && req.method==='POST') return await auth.login(db,req,res);
      if (p==='/logout' && req.method==='POST') return auth.logout(db,req,res);
@@ -133,6 +149,38 @@ async function handle(req,res){
      }
    }
    if(p.startsWith('/api/')){
+     const user=auth.currentUser(db,req);
+     if(req.method==='GET'&&p==='/api/auth/me')
+       return send(res,200,{user:auth.publicUser(user),auth_enabled:auth.enabled,house_title:houseTitle()});
+     if(req.method==='POST'&&p==='/api/auth/password'){
+       const body=await parseBody(req);
+       return send(res,200,await auth.changePassword(db,req,body.current_password,body.new_password));
+     }
+     if(p==='/api/settings'){
+       if(req.method==='GET')return send(res,200,{house_title:houseTitle()});
+       if(req.method==='PATCH'){
+         if(user?.role!=='admin')fail('Nur Administratoren dürfen Hauseinstellungen ändern.',403);
+         const body=await parseBody(req);
+         const title=text(body.house_title,'Haustitel',100);
+         if(title.length<2||/[\x00-\x1F\x7F]/.test(title))fail('Haustitel muss mindestens zwei sichtbare Zeichen haben.');
+         db.prepare("INSERT INTO settings (key,value) VALUES ('house_title',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(title);
+         return send(res,200,{house_title:title});
+       }
+     }
+     if(p==='/api/users'){
+       if(user?.role!=='admin')fail('Nur Administratoren dürfen Benutzer verwalten.',403);
+       if(req.method==='GET')return send(res,200,{users:auth.listUsers(db)});
+       if(req.method==='POST'){
+         const body=await parseBody(req);
+         return send(res,201,{user:await auth.createUser(db,body)});
+       }
+     }
+     const userMatch=p.match(/^\/api\/users\/(\d+)$/);
+     if(userMatch&&req.method==='PATCH'){
+       if(user?.role!=='admin')fail('Nur Administratoren dürfen Benutzer verwalten.',403);
+       const body=await parseBody(req);
+       return send(res,200,{user:await auth.updateUser(db,id(userMatch[1]),body)});
+     }
      if(req.method==='GET'&&p==='/api/state')return send(res,200,{...snapshot(),year:YEAR});
      if(req.method==='GET'&&p==='/api/report')return send(res,200,report(Number(u.searchParams.get('year')||YEAR)));
      if(req.method==='GET'&&p==='/api/forecast')return send(res,200,forecast(report(Number(u.searchParams.get('year')||YEAR)),{priceGrowth:Number(u.searchParams.get('price')??3),consumptionGrowth:Number(u.searchParams.get('consumption')??0)}));
@@ -163,14 +211,14 @@ async function handle(req,res){
        const householdId=u.searchParams.get('household')?id(u.searchParams.get('household')):null;
        if(householdId&&!r.households.some(h=>h.id===householdId))fail('Haushalt nicht gefunden.',404);
        const pdfHouseholds=householdId?r.households.filter(h=>h.id===householdId):r.households;
-       const sections=[{text:`Jahresabrechnung ${year}`,size:14,bold:true,gap:35},...pdfHouseholds.flatMap(h=>[
+       const sections=[{text:`${houseTitle()} – Jahresabrechnung ${year}`,size:14,bold:true,gap:35},...pdfHouseholds.flatMap(h=>[
          {text:h.name,size:13,bold:true},{text:`Kosten: ${euro(h.cost_cents)} EUR | Abschlaege: ${euro(h.paid_cents)} EUR | Saldo: ${euro(h.balance_cents)} EUR`,size:11},
          ...Object.entries(h.by_kind).map(([k,v])=>({text:`   ${k}: ${euro(v)} EUR`,size:10,gap:17})),
          ...(householdId?r.invoices.filter(i=>i.shares[h.id]>0).map(i=>({text:`   Rechnung ${i.id}: ${i.provider}, ${i.kind}, ${euro(i.shares[h.id])} EUR`,size:9,gap:17})):[]),
          {text:'',gap:12}
        ]),{text:householdId?`Haushalt gesamt: ${euro(pdfHouseholds[0].cost_cents)} EUR | Abschlaege: ${euro(pdfHouseholds[0].paid_cents)} EUR`:`Gesamt: ${euro(r.totals.cost_cents)} EUR | Abschlaege: ${euro(r.totals.paid_cents)} EUR`,size:12,bold:true},
          {text:'Die Aufteilung erfolgt gemaess den gespeicherten Umlageschluesseln. Rechnungen gehoeren zum Jahr ihres Perioden-Enddatums.',size:9},...r.warnings.map(w=>({text:`ACHTUNG: ${w}`,size:9}))];
-       return download(res,`Hauskosten-${year}${householdId?'-Haushalt-'+householdId:''}.pdf`,linesToPdf('Hauskosten-Manager',sections),'application/pdf');
+       return download(res,`Hauskosten-${year}${householdId?'-Haushalt-'+householdId:''}.pdf`,linesToPdf(houseTitle(),sections),'application/pdf');
      }
      if(req.method==='GET'&&p==='/api/backup'){
        const tables=snapshot();const files={};

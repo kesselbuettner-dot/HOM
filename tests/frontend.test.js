@@ -13,3 +13,14 @@ test('Dashboard und Jahresabrechnung erzeugen die erwarteten HTML-Ansichten',()=
 test('Formulare für Rechnungen und Zähler lassen sich generieren',()=>{
  const ctx=pageRender();const invoice=vm.runInContext("modalFields('invoice')",ctx),meter=vm.runInContext("modalFields('meter')",ctx);assert.match(invoice,/PDF-Rechnung/);assert.match(invoice,/Umlageschlüssel/);assert.match(meter,/Zählerfaktor/);
 });
+
+test('Hausname und Benutzerverwaltung sind im Frontend sichtbar',()=>{
+ const ctx=pageRender();
+ vm.runInContext("houseTitle='Haus am Garten';account={id:1,username:'hom',display_name:'Administrator',role:'admin'};users=[{id:1,username:'hom',display_name:'Administrator',role:'admin',active:1}];",ctx);
+ assert.match(vm.runInContext('dashboard()',ctx),/Haus am Garten/);
+ assert.match(vm.runInContext('settingsPage()',ctx),/Haus am Garten/);
+ assert.match(vm.runInContext('usersPage()',ctx),/Benutzerverwaltung/);
+ assert.match(vm.runInContext('profilePage()',ctx),/Passwort ändern/);
+ vm.runInContext("account.role='user'",ctx);
+ assert.match(vm.runInContext('usersPage()',ctx),/Kein Zugriff/);
+});
