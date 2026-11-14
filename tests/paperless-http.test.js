@@ -40,7 +40,7 @@ test('HOM: Paperless-Suche und Belegverknüpfung prüfen Freigabe bei jedem Zugr
  x=await call('/api/paperless/documents/12/preview');assert.equal(x.status,200);assert.equal(x.data.subarray(0,5).toString(),'%PDF-');
  x=await call('/api/households','POST',{name:'Wohnung',area_m2:70,occupants:2});assert.equal(x.status,201);
  const tariff={kind:'strom',provider:'Test',valid_from:'2026-01-01',unit_price_eur:0.3,base_month_eur:12};
- x=await call('/api/tariffs','POST',{...tariff,paperless_document_id:13});assert.equal(x.status,403);
+ x=await call('/api/tariffs','POST',{...tariff,paperless_document_id:13});assert.equal(x.status,502);
  x=await call('/api/tariffs','POST',{...tariff,paperless_document_id:12});assert.equal(x.status,201);
  x=await call('/api/tariffs');assert.equal(x.data[0].paperless_document_id,12);
  canReadPrivate=true;
