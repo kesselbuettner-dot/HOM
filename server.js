@@ -369,6 +369,11 @@ async function handle(req,res){
          if(!existing)fail('Nicht gefunden.',404);
          const body=await parseBody(req);
          const clean=validate(table,body);
+         if(table==='invoices'&&existing.gas_tariff_id&&clean.gas_tariff_id===existing.gas_tariff_id&&existing.gas_calorific_kwh_m3&&existing.gas_condition_factor){
+           // Beim späteren Bearbeiten der Rechnung historische Gasfaktoren nicht überschreiben.
+           clean.gas_calorific_kwh_m3=existing.gas_calorific_kwh_m3;
+           clean.gas_condition_factor=existing.gas_condition_factor;
+         }
          if(table==='invoices'&&clean.invoice_number){
            const duplicate=db.prepare('SELECT id FROM invoices WHERE provider=? AND invoice_number=? AND id<>?').get(clean.provider,clean.invoice_number,entryId);
            if(duplicate)fail('Diese Rechnungsnummer ist bei diesem Rechnungssteller bereits erfasst.');
