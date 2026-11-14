@@ -27,6 +27,32 @@ function commonWeights(households, method) {
   return households.map(h=>[h.id,
     method === 'area' ? Number(h.area_m2) : method === 'persons' ? Number(h.occupants) : 1]);
 }
+function dateMs(day){return Date.parse(day+'T00:00:00Z');}
+function monthEnd(year,month){return new Date(Date.UTC(year,month,0)).getUTCDate();}
+function standingOrderEntries(orders,manualPayments,year,{today=new Date().toISOString().slice(0,10),dueOnly=true}={}){
+  const entries=[];
+  const recordedMonths=new Set(manualPayments.map(p=>p.household_id+':'+p.date.slice(0,7)));
+  for(const rule of orders||[]){
+    for(let month=1;month<=12;month++){
+      const ym=year+'-'+String(month).padStart(2,'0');
+      if(ym<rule.valid_from.slice(0,7)||rule.valid_until&&ym>rule.valid_until.slice(0,7))continue;
+      const date=ym+'-'+String(Math.min(Number(rule.day_of_month),monthEnd(year,month))).padStart(2,'0');
+      if(dueOnly&&date>today)continue;
+      // Manually posted payment in the same month takes precedence; no double counting.
+      if(recordedMonths.has(rule.household_id+':'+ym))continue;
+      entries.push({household_id:rule.household_id,date,amount_cents:Number(rule.amount_cents),
+        note:rule.note||'Monatlicher Dauerauftrag (planmäßig, nicht bankbestätigt)',standing_order_id:rule.id,source:'standing_order'});
+    }
+  }
+  entries.sort((a,b)=>a.date.localeCompare(b.date)||a.household_id-b.household_id);
+  return entries;
+}
+function contractAlerts(tariffs,today=new Date().toISOString().slice(0,10)){
+  return (tariffs||[]).filter(t=>t.cancellation_deadline&&!t.cancellation_done)
+    .map(t=>({...t,days_left:Math.round((dateMs(t.cancellation_deadline)-dateMs(today))/86400000)}))
+    .filter(t=>t.days_left<=Number(t.reminder_days??42))
+    .sort((a,b)=>a.days_left-b.days_left);
+}
 function allocInvoice(invoice, households, meters, readings) {
   const active = households.filter(h=>h.active);
   if (invoice.household_id) {
@@ -37,6 +63,9 @@ function allocInvoice(invoice, households, meters, readings) {
   let weights, notes=[];
   if (invoice.distribution === 'meter') {
     const relevant = meters.filter(m => m.kind === invoice.kind && m.active);
+    if(invoice.kind==='gas'&&invoice.gas_calorific_kwh_m3&&invoice.gas_condition_factor&&relevant.some(m=>m.unit!=='m³')) {
+      throw new Error('Gas-Abrechnung mit Umrechnung erfordert m³ als Einheit für alle beteiligten Gaszähler.');
+    }
     const privateMeters = relevant.filter(m=>m.household_id && m.role==='sub');
     const mainMeters = relevant.filter(m=>m.role==='main');
     const amounts = Object.fromEntries(active.map(h=>[h.id,0]));
@@ -67,6 +96,27 @@ function allocInvoice(invoice, households, meters, readings) {
       notes.push('Kein Hauptzähler hinterlegt; Verteilung ausschließlich anhand der erfassten Unterzähler.');
     }
     weights = active.map(h=>[h.id,amounts[h.id]]);
+    if(invoice.kind==='gas'){
+      const calorific=Number(invoice.gas_calorific_kwh_m3),condition=Number(invoice.gas_condition_factor);
+      if(calorific>0&&condition>0){
+        const gas={calorific_kwh_m3:calorific,condition_factor:condition,
+          total_volume_m3:0,total_energy_kwh:0,households:[]};
+        for(const [householdId,valueMilli] of weights){
+          const volume_m3=Number((valueMilli/1000).toFixed(3));
+          const energy_kwh=Number((volume_m3*calorific*condition).toFixed(3));
+          gas.households.push({id:householdId,volume_m3,energy_kwh});
+          gas.total_volume_m3+=volume_m3;
+          gas.total_energy_kwh+=energy_kwh;
+        }
+        gas.total_volume_m3=Number(gas.total_volume_m3.toFixed(3));
+        gas.total_energy_kwh=Number(gas.total_energy_kwh.toFixed(3));
+        notes.push('Gasumrechnung: '+gas.total_volume_m3.toFixed(3)+' m³ × '+calorific+' kWh/m³ × '+condition+
+          ' = '+gas.total_energy_kwh.toFixed(3)+' kWh (Rechnungsfaktoren).');
+        invoice._gas_details=gas;
+      }else{
+        notes.push('Gas in m³ verteilt; Brennwert/Zustandszahl fehlen. Keine kWh-Umrechnung für diese Rechnung.');
+      }
+    }
   } else if (invoice.distribution === 'custom') {
     const custom = JSON.parse(invoice.custom_weights||'{}');
     weights = active.map(h=>[h.id, Number(custom[h.id]||0)]);
@@ -74,9 +124,9 @@ function allocInvoice(invoice, households, meters, readings) {
     weights = commonWeights(active, invoice.distribution);
   }
   if (weights.reduce((s,[,w])=>s+w,0) <= 0) throw new Error('Die Umlage hat keine positiven Gewichte.');
-  return { shares:splitCents(invoice.amount_cents,weights), notes, method:invoice.distribution };
+  return { shares:splitCents(invoice.amount_cents,weights), notes, method:invoice.distribution,gas:invoice._gas_details||null };
 }
-function yearReport(year, { households, meters, readings, invoices, payments }) {
+function yearReport(year, { households, meters, readings, invoices, payments, standing_orders=[] },today=new Date().toISOString().slice(0,10)) {
   const hh = households.filter(h=>h.active || invoices.some(i=>i.household_id===h.id) || payments.some(p=>p.household_id===h.id));
   const result = { year, households:hh.map(h=>({id:h.id,name:h.name,area_m2:h.area_m2,occupants:h.occupants,cost_cents:0,paid_cents:0,balance_cents:0,by_kind:{}})), invoices:[], warnings:[], totals:{cost_cents:0,paid_cents:0,balance_cents:0}, kinds:{} };
   for (const inv of invoices.filter(i=>i.period_end.slice(0,4)===String(year))) {
@@ -88,10 +138,13 @@ function yearReport(year, { households, meters, readings, invoices, payments }) 
       }
       result.totals.cost_cents+=inv.amount_cents;
       result.kinds[inv.kind]=(result.kinds[inv.kind]||0)+inv.amount_cents;
-      result.invoices.push({id:inv.id,kind:inv.kind,provider:inv.provider,amount_cents:inv.amount_cents,period_start:inv.period_start,period_end:inv.period_end,shares:al.shares,notes:al.notes});
+      result.invoices.push({id:inv.id,kind:inv.kind,provider:inv.provider,amount_cents:inv.amount_cents,period_start:inv.period_start,period_end:inv.period_end,shares:al.shares,notes:al.notes,gas:al.gas||null});
     } catch(e) {result.warnings.push(`Rechnung #${inv.id} (${inv.provider}): ${e.message}`);}
   }
-  for (const p of payments.filter(p=>p.date.slice(0,4)===String(year))) {
+  const recurring=standingOrderEntries(standing_orders,payments,year,{today});
+  result.standing_order_entries=recurring;
+  result.assumptions=recurring.length?['Monatliche Daueraufträge werden bis zum Fälligkeitstag als planmäßig bezahlt angenommen; keine Bankbestätigung vorhanden. Manuelle Abschläge im selben Monat haben Vorrang.']:[];
+  for (const p of [...payments,...recurring].filter(p=>p.date.slice(0,4)===String(year))) {
     const h=result.households.find(h=>h.id===p.household_id);
     if(h) {h.paid_cents+=p.amount_cents; result.totals.paid_cents+=p.amount_cents;}
   }
@@ -110,4 +163,4 @@ function forecast(report, { priceGrowth = 3, consumptionGrowth = 0 } = {}) {
     return {year:report.year+n,total_cents:Math.round(report.totals.cost_cents*factor),households:report.households.map(h=>({id:h.id,name:h.name,cost_cents:Math.round(h.cost_cents*factor)}))};
   }) }))};
 }
-module.exports={ validDate, readingAt, consumption, commonWeights, allocInvoice, yearReport, forecast };
+module.exports={ validDate, readingAt, consumption, commonWeights, standingOrderEntries, contractAlerts, allocInvoice, yearReport, forecast };
