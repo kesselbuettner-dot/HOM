@@ -6,7 +6,7 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {db,all,insert,del,snapshot,atomic,dataPath}=require('./src/db');
 const {parseMoney,positiveNumber,euro}=require('./src/money');
-const {validDate,yearReport,forecast,standingOrderEntries,contractAlerts}=require('./src/calc');
+const {validDate,yearReport,forecast,standingOrderEntries,providerInstallmentEntries,contractAlerts}=require('./src/calc');
 const {createXlsx}=require('./src/xlsx');
 const {linesToPdf}=require('./src/pdf');
 const auth=require('./src/auth');
@@ -20,7 +20,7 @@ auth.init(db);
 if(!auth.enabled && !['127.0.0.1','localhost','::1'].includes(HOST)) {
   throw new Error('NAS-/Netzwerkbetrieb ohne eingerichteten Administrator ist aus Sicherheitsgründen gesperrt. Bitte HOM_PASSWORD_HASH für die Ersteinrichtung hinterlegen.');
 }
-const kinds=['strom','gas','wasser','abwasser','heizung','warmwasser','muell','versicherung','grundsteuer','sonstiges'];
+const kinds=['strom','gas','wasser','abwasser','heizung','warmwasser','muell','versicherung','grundsteuer','internet','sonstiges'];
 const distributions=['meter','area','persons','equal','custom'];
 const send=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
 function fail(message,status=400){const e=new Error(message);e.status=status;throw e;}
@@ -67,7 +67,9 @@ function validate(table,v) {
    const days=v.reminder_days===null||v.reminder_days===undefined||v.reminder_days===''?42:Number(v.reminder_days);
    if(!Number.isSafeInteger(days)||days<0||days>365)fail('Erinnerungsvorlauf muss zwischen 0 und 365 Tagen liegen.');
    return {kind:category,provider:text(v.provider,'Versorger',120),valid_from:day(v.valid_from,'Gültig ab'),
-     unit_price_eur:real(v.unit_price_eur,'Arbeitspreis',10000),base_month_eur:real(v.base_month_eur,'Grundpreis',100000),
+     unit_price_eur:real(category==='internet'&&v.unit_price_eur===''?0:v.unit_price_eur,'Arbeitspreis',10000),
+     base_month_eur:real(v.base_month_eur,'Monatlicher Grundpreis',100000),
+     billing_frequency:['monthly','annual','other'].includes(v.billing_frequency)?v.billing_frequency:(category==='internet'?'monthly':'annual'),
      ...gas,contract_start:contractStart,contract_end:contractEnd,cancellation_deadline:deadline,
      reminder_days:days,cancellation_done:v.cancellation_done===true||v.cancellation_done==='1'?1:0,
      note:text(v.note,'Bemerkung',500,false),paperless_document_id:v.paperless_document_id?Number(v.paperless_document_id):null};
@@ -100,6 +102,18 @@ function validate(table,v) {
      paperless_document_id:v.paperless_document_id?Number(v.paperless_document_id):null};
  }
  case 'payments':return {household_id:assertRef('households',v.household_id),date:day(v.date,'Zahlungsdatum'),amount_cents:parseMoney(v.amount_eur),note:text(v.note,'Bemerkung',300,false)};
+ case 'provider_installments':{
+   const from=day(v.valid_from,'Gültig ab'),until=optionalDate(v.valid_until,'Gültig bis');
+   if(from.slice(8)!=='01')fail('Anbieter-Abschlag muss am ersten Tag des Startmonats beginnen.');
+   if(until&&until.slice(0,7)<from.slice(0,7))fail('Ende des Abschlags liegt vor dem Beginn.');
+   const due=Number(v.day_of_month);
+   if(!Number.isSafeInteger(due)||due<1||due>31)fail('Abbuchungstag muss zwischen 1 und 31 liegen.');
+   const amount=parseMoney(v.amount_eur);
+   if(amount<=0)fail('Anbieter-Abschlag muss positiv sein.');
+   return {tariff_id:assertRef('tariffs',v.tariff_id),amount_cents:amount,
+     day_of_month:due,valid_from:from,valid_until:until,
+     note:text(v.note,'Bemerkung',300,false)};
+ }
  case 'standing_orders':{
    const from=day(v.valid_from,'Gültig ab'),until=optionalDate(v.valid_until,'Gültig bis');
    if(from.slice(8)!=='01')fail('Dauerauftrag beginnt am ersten Kalendertag des Gültigkeitsmonats.');
@@ -245,6 +259,32 @@ async function handle(req,res){
        return send(res,200,result);
      }
      if(req.method==='GET'&&p==='/api/contracts/alerts')return send(res,200,{alerts:contractAlerts(all('tariffs'))});
+     if(req.method==='GET'&&p==='/api/provider-installments/preview'){
+       const y=Number(u.searchParams.get('year')||YEAR);
+       if(!Number.isSafeInteger(y)||y<2000||y>2200)fail('Ungültiges Jahr.');
+       return send(res,200,{entries:providerInstallmentEntries(all('provider_installments'),all('tariffs'),y,{dueOnly:false})});
+     }
+     if(req.method==='POST'&&p==='/api/provider-installments'){
+       const body=await parseBody(req),clean=validate('provider_installments',body);
+       const changeMonth=clean.valid_from.slice(0,7);
+       const endMonth=clean.valid_until?.slice(0,7)||'9999-12';
+       const existing=db.prepare('SELECT * FROM provider_installments WHERE tariff_id=? ORDER BY valid_from').all(clean.tariff_id);
+       for(const old of existing){
+         const start=old.valid_from.slice(0,7);
+         if(start>=changeMonth&&start<=endMonth)
+           fail('Für diesen Vertrag gibt es bereits einen Anbieter-Abschlag ab diesem Monat. Bitte zukünftigen Eintrag zuerst löschen.');
+       }
+       const prevMonthEnd=new Date(Date.UTC(Number(changeMonth.slice(0,4)),Number(changeMonth.slice(5,7))-1,0)).toISOString().slice(0,10);
+       const newId=atomic(()=>{
+         for(const old of existing){
+           const end=old.valid_until?.slice(0,7)||'9999-12';
+           if(old.valid_from.slice(0,7)<changeMonth&&end>=changeMonth)
+             db.prepare('UPDATE provider_installments SET valid_until=? WHERE id=?').run(prevMonthEnd,old.id);
+         }
+         return insert('provider_installments',clean);
+       });
+       return send(res,201,{ok:true,id:newId});
+     }
      if(req.method==='GET'&&p==='/api/standing-orders/preview'){
        const y=Number(u.searchParams.get('year')||YEAR);
        if(!Number.isInteger(y)||y<2000||y>2200)fail('Ungültiges Jahr.');
@@ -361,9 +401,10 @@ async function handle(req,res){
      if(req.method==='POST'&&p==='/api/restore'){
        const body=await parseBody(req,40*1024*1024);
        if(body.confirm!=='RESTORE'||body.format!=='hauskosten-backup-v1'||!body.tables||!body.files)fail('Ungültiges Sicherungsformat oder Bestätigung.');
-       // Alte Backups ohne Daueraufträge bleiben wiederherstellbar.
+       // Auch ältere Sicherungen ohne Anbieter-Abschläge bleiben wiederherstellbar.
        if(!body.tables.standing_orders)body.tables.standing_orders=[];
-       const keys=['households','meters','readings','tariffs','invoices','payments','standing_orders'];
+       if(!body.tables.provider_installments)body.tables.provider_installments=[];
+       const keys=['households','meters','readings','tariffs','invoices','payments','standing_orders','provider_installments'];
        for(const key of keys)if(!Array.isArray(body.tables[key])||body.tables[key].length>30000)fail('Ungültige Sicherungstabelle: '+key);
        const attachmentFiles={};
        for(const [name,data] of Object.entries(body.files)){
@@ -383,7 +424,7 @@ async function handle(req,res){
        for(const [name,data] of Object.entries(attachmentFiles))fs.writeFileSync(path.join(dataPath,'attachments',name),data);
        return send(res,200,{ok:true});
      }
-     const match=p.match(/^\/api\/(households|meters|readings|tariffs|invoices|payments|standing_orders)(?:\/(\d+))?$/);
+     const match=p.match(/^\/api\/(households|meters|readings|tariffs|invoices|payments|standing_orders|provider_installments)(?:\/(\d+))?$/);
      if(match){
        const table=match[1],entryId=match[2]?id(match[2]):null;
        if(req.method==='GET'&&!entryId)return send(res,200,all(table));
@@ -393,7 +434,7 @@ async function handle(req,res){
          if(inv?.attachment_file){try{fs.unlinkSync(path.join(dataPath,'attachments',path.basename(inv.attachment_file)));}catch{}}
          return send(res,200,{ok:true});
        }
-       if(req.method==='POST'&&!entryId&&table!=='standing_orders'){
+       if(req.method==='POST'&&!entryId&&!['standing_orders','provider_installments'].includes(table)){
          const body=await parseBody(req);
          const clean=validate(table,body);
          if((table==='invoices'||table==='tariffs')&&clean.paperless_document_id!==null){
